@@ -1,0 +1,44 @@
+/* Motion is progressive enhancement: short, composited transitions and clear feedback. */
+@keyframes rise-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes soft-pop{from{opacity:.4;transform:scale(.82)}to{opacity:1;transform:scale(1)}}
+@keyframes line-in{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes bubble-in{from{opacity:0;transform:translateY(7px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes highlight-form{0%{box-shadow:0 0 0 0 rgba(39,115,97,.27)}65%{box-shadow:0 0 0 8px rgba(39,115,97,0)}100%{box-shadow:none}}
+@keyframes gentle-pulse{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.08);opacity:1}}
+@keyframes sweep{from{transform:translateX(-110%)}to{transform:translateX(310%)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.flow-main,.auth-focus{transition:opacity .17s ease,transform .17s ease}
+.is-leaving .flow-main,.is-leaving .auth-focus{opacity:.35;transform:translateY(-6px)}
+.flow-main>*{animation:rise-in .48s cubic-bezier(.18,.72,.2,1) both}
+.flow-main>:nth-child(2){animation-delay:.035s}.flow-main>:nth-child(3){animation-delay:.07s}.flow-main>:nth-child(4){animation-delay:.105s}.flow-main>:nth-child(5){animation-delay:.14s}.flow-main>:nth-child(n+6){animation-delay:.17s}
+.auth-brand{animation:rise-in .42s cubic-bezier(.18,.72,.2,1) both}
+.auth-focus-card{animation:rise-in .54s cubic-bezier(.18,.72,.2,1) .06s both}
+.auth-footnote{animation:rise-in .5s cubic-bezier(.18,.72,.2,1) .15s both}
+.flow-progress .current b{animation:soft-pop .42s cubic-bezier(.2,.8,.2,1) .12s both}
+.flow-progress i{transform-origin:left;animation:line-in .44s ease-out .1s both}
+.plan-lead>div:first-child>strong{display:block;animation:rise-in .55s cubic-bezier(.18,.72,.2,1) .18s both}
+.allocation-rows>div{animation:rise-in .42s cubic-bezier(.18,.72,.2,1) both}
+.allocation-rows>div:nth-child(2){animation-delay:.07s}.allocation-rows>div:nth-child(3){animation-delay:.14s}
+.mini-chat .bubble:last-child,.chat-stream .bubble:last-child{animation:bubble-in .38s cubic-bezier(.2,.8,.2,1) both}
+.entry-choice[open] .entry-content,.flow-disclosure[open]>:not(summary){animation:rise-in .31s cubic-bezier(.18,.72,.2,1) both}
+.entry-choice summary>span:last-child,.flow-disclosure summary:after{transition:transform .24s cubic-bezier(.2,.8,.2,1)}
+.dropzone{transition:background .2s ease,border-color .2s ease,transform .2s ease}
+.dropzone:hover{transform:translateY(-2px);border-color:#5f9c79}
+.dropzone.file-picked{background:#edf8f0;border-color:#4f9d73;animation:soft-pop .28s ease-out both}
+.dropzone strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.form-highlight{animation:highlight-form .85s ease-out both}
+.toast,.auth-toast{animation:rise-in .32s cubic-bezier(.2,.8,.2,1) both}
+.button:active{transform:scale(.98)}
+a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid #72b493;outline-offset:3px}
+
+.work-overlay{position:fixed;inset:0;display:grid;place-items:center;padding:20px;background:rgba(247,249,247,.77);z-index:100;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .22s ease,visibility .22s ease}
+.work-overlay.visible{opacity:1;visibility:visible;pointer-events:auto}
+.work-overlay-panel{width:min(100%,310px);padding:29px 27px;background:#fff;border:1px solid #dcebe0;border-radius:17px;box-shadow:0 20px 60px rgba(22,69,54,.14);text-align:center;transform:translateY(8px) scale(.98);transition:transform .28s cubic-bezier(.18,.72,.2,1)}
+.work-overlay.visible .work-overlay-panel{transform:translateY(0) scale(1)}
+.work-symbol{display:grid;place-items:center;width:43px;height:43px;margin:0 auto 15px;border-radius:13px;background:#e0f1e6;color:#23715a;font-size:25px;animation:gentle-pulse 1.5s ease-in-out infinite}
+.work-overlay-panel strong,.work-overlay-panel small{display:block}.work-overlay-panel strong{font-size:16px;color:#214e42}.work-overlay-panel small{font-size:11px;color:#879e91;margin-top:4px}
+.work-progress{display:block;height:4px;margin-top:21px;border-radius:9px;background:#e2efe5;overflow:hidden}.work-progress:after{content:'';display:block;width:38%;height:100%;border-radius:9px;background:#42a17b;animation:sweep 1.3s cubic-bezier(.45,0,.55,1) infinite}
+button.is-busy::after{content:'';display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:middle;animation:spin .7s linear infinite}
+
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto!important}*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}

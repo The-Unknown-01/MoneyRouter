@@ -7,9 +7,11 @@
   <title>{{.Title}} · 稳序</title>
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/flow.css">
+  <link rel="stylesheet" href="/static/motion.css">
   <script src="/static/app.js" defer></script>
 </head>
 <body class="{{if .User}}flow-body{{else}}flow-auth-body{{end}}">
+<div class="work-overlay" id="work-overlay" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true"><div class="work-overlay-panel"><span class="work-symbol" aria-hidden="true">◈</span><strong id="work-overlay-label">正在处理…</strong><small>请稍候，完成后会自动进入下一步</small><span class="work-progress" aria-hidden="true"></span></div></div>
 {{if .User}}
   <header class="flow-header">
     <div class="flow-header-inner">
