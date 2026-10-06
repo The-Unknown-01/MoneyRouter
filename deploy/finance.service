@@ -1,0 +1,24 @@
+[Unit]
+Description=Finance MVP WebApp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=finance
+Group=finance
+WorkingDirectory=/opt/finance
+Environment=DEEPSEEK_API_KEY_FILE=/etc/finance/deepseek_api.key
+Environment=COOKIE_SECURE=1
+ExecStart=/opt/finance/finance-linux-amd64 -addr 127.0.0.1:8080 -data /var/lib/finance
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/finance
+ReadOnlyPaths=/etc/finance
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
