@@ -1,0 +1,10 @@
+.env/
+.env.local
+*.db
+*.db-shm
+*.db-wal
+/data/
+/bin/
+/dist/
+*.exe
+*.log
