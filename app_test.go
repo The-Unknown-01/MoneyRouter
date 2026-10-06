@@ -66,10 +66,24 @@ func registerTestUser(t *testing.T, a *app, name string) (*http.Cookie, string, 
 	return cookie, csrf, id
 }
 
+func confirmTestProfile(t *testing.T, a *app, cookie *http.Cookie, csrf string) {
+	t.Helper()
+	w := request(t, a, "POST", "/profile", url.Values{
+		"csrf": {csrf}, "income": {"12000"}, "debt": {"300"}, "reserve": {"15000"},
+		"horizon": {"60"}, "loss": {"10"}, "experience": {"some"},
+		"stable": {"yes"}, "family": {"no"}, "goal": {"稳健积累资产"}, "confirm": {"yes"},
+	}, cookie)
+	if w.Code != http.StatusSeeOther || !strings.HasPrefix(w.Header().Get("Location"), "/ledger") {
+		t.Fatalf("confirm profile: %d %s", w.Code, w.Header().Get("Location"))
+	}
+}
+
 func TestAccountsAreIsolatedAcrossRoutes(t *testing.T) {
 	a := testApp(t)
 	ac, at, aid := registerTestUser(t, a, "account_a")
 	bc, bt, bid := registerTestUser(t, a, "account_b")
+	confirmTestProfile(t, a, ac, at)
+	confirmTestProfile(t, a, bc, bt)
 	seed := request(t, a, "POST", "/demo", url.Values{"csrf": {at}}, ac)
 	if seed.Code != http.StatusSeeOther {
 		t.Fatalf("seed: %d %s", seed.Code, seed.Body.String())
@@ -119,7 +133,9 @@ func TestPlanNeedsConfirmedProfileAndRejectsWrongCSRF(t *testing.T) {
 func TestCSVPreviewRequiresOwnerAndConfirmation(t *testing.T) {
 	a := testApp(t)
 	ac, at, aid := registerTestUser(t, a, "csv_owner")
-	bc, _, _ := registerTestUser(t, a, "csv_other")
+	bc, bt, _ := registerTestUser(t, a, "csv_other")
+	confirmTestProfile(t, a, ac, at)
+	confirmTestProfile(t, a, bc, bt)
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	if err := writer.WriteField("csrf", at); err != nil {
@@ -172,20 +188,43 @@ func TestTwoAccountsCompleteFlowAndBackup(t *testing.T) {
 		cookie *http.Cookie
 		csrf   string
 	}{{ac, at}, {bc, bt}} {
-		for _, endpoint := range []string{"/", "/ledger", "/profile", "/plan", "/review", "/chat"} {
+		start := request(t, a, "GET", "/", nil, account.cookie)
+		if start.Code != http.StatusSeeOther || start.Header().Get("Location") != "/profile" {
+			t.Fatalf("new user did not start at profile: %d %s", start.Code, start.Header().Get("Location"))
+		}
+		for _, endpoint := range []string{"/profile"} {
 			w := request(t, a, "GET", endpoint, nil, account.cookie)
 			if w.Code != 200 || strings.Contains(w.Body.String(), "ZgotmplZ") {
 				t.Fatalf("page %s returned %d: %s", endpoint, w.Code, w.Body.String())
 			}
+			if strings.Contains(w.Body.String(), "class=\"sidebar\"") || strings.Contains(w.Body.String(), "财务总览") {
+				t.Fatal("legacy dashboard navigation remains visible")
+			}
+		}
+		confirmTestProfile(t, a, account.cookie, account.csrf)
+		if w := request(t, a, "GET", "/plan", nil, account.cookie); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/ledger" {
+			t.Fatalf("plan before ledger: %d %s", w.Code, w.Header().Get("Location"))
+		}
+		if w := request(t, a, "GET", "/ledger", nil, account.cookie); w.Code != 200 {
+			t.Fatalf("ledger page: %d %s", w.Code, w.Body.String())
+		}
+		if w := request(t, a, "GET", "/review", nil, account.cookie); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/ledger" {
+			t.Fatalf("review before plan: %d %s", w.Code, w.Header().Get("Location"))
 		}
 		if w := request(t, a, "POST", "/demo", url.Values{"csrf": {account.csrf}}, account.cookie); w.Code != http.StatusSeeOther {
 			t.Fatalf("demo: %d", w.Code)
 		}
+		if w := request(t, a, "GET", "/", nil, account.cookie); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/plan" {
+			t.Fatalf("account did not advance to plan: %d %s", w.Code, w.Header().Get("Location"))
+		}
+		if w := request(t, a, "GET", "/review", nil, account.cookie); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/plan" {
+			t.Fatalf("review without a saved plan: %d %s", w.Code, w.Header().Get("Location"))
+		}
 		if w := request(t, a, "POST", "/plan/generate", url.Values{"csrf": {account.csrf}}, account.cookie); w.Code != http.StatusSeeOther {
 			t.Fatalf("plan: %d %s", w.Code, w.Body.String())
 		}
-		for _, endpoint := range []string{"/plan", "/review?month=" + time.Now().AddDate(0, -1, 0).Format("2006-01")} {
-			if w := request(t, a, "GET", endpoint, nil, account.cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "¥") {
+		for _, endpoint := range []string{"/plan", "/ledger", "/chat", "/review?month=" + time.Now().AddDate(0, -1, 0).Format("2006-01")} {
+			if w := request(t, a, "GET", endpoint, nil, account.cookie); w.Code != 200 || strings.Contains(w.Body.String(), "页面渲染失败") {
 				t.Fatalf("result %s: %d", endpoint, w.Code)
 			}
 		}
@@ -247,6 +286,8 @@ func TestConcurrentAccountsKeepLedgersSeparate(t *testing.T) {
 	a := testApp(t)
 	ac, at, aid := registerTestUser(t, a, "parallel_a")
 	bc, bt, bid := registerTestUser(t, a, "parallel_b")
+	confirmTestProfile(t, a, ac, at)
+	confirmTestProfile(t, a, bc, bt)
 	type account struct {
 		cookie *http.Cookie
 		csrf   string

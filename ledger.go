@@ -137,6 +137,8 @@ type ledgerData struct {
 	Categories                         []string
 	Month                              string
 	Category                           string
+	TransactionCount                   int
+	HasPlan                            bool
 	Income, Expense, Net, Needs, Wants int64
 }
 
@@ -155,6 +157,16 @@ func (a *app) ledger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := ledgerData{Transactions: items, Categories: categories, Month: month, Category: category}
+	if err := a.db.QueryRow(`SELECT count(*) FROM transactions WHERE user_id=?`, currentUser(r).ID).Scan(&d.TransactionCount); err != nil {
+		http.Error(w, "账本读取失败", 500)
+		return
+	}
+	var planCount int
+	if err := a.db.QueryRow(`SELECT count(*) FROM plans WHERE user_id=?`, currentUser(r).ID).Scan(&planCount); err != nil {
+		http.Error(w, "方案读取失败", 500)
+		return
+	}
+	d.HasPlan = planCount > 0
 	for _, t := range items {
 		if t.Direction == "income" {
 			d.Income += t.AmountCents
@@ -308,10 +320,5 @@ func (a *app) seedDemo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "样例载入失败", 500)
 		return
 	}
-	_, err := a.db.Exec(`INSERT INTO profiles(user_id,income_cents,stable_income,family_load,debt_cents,reserve_cents,horizon_months,max_loss_pct,experience,goal,confirmed,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET income_cents=excluded.income_cents,stable_income=excluded.stable_income,family_load=excluded.family_load,debt_cents=excluded.debt_cents,reserve_cents=excluded.reserve_cents,horizon_months=excluded.horizon_months,max_loss_pct=excluded.max_loss_pct,experience=excluded.experience,goal=excluded.goal,confirmed=excluded.confirmed,updated_at=excluded.updated_at`, u.ID, 1200000, 1, 0, 30000, 1500000, 60, 10, "some", "稳健积累资产", 1, utcNow())
-	if err != nil {
-		http.Error(w, "样例画像保存失败", 500)
-		return
-	}
-	redirect(w, r, "/ledger", "已载入当前账号专属样例账单和画像")
+	redirect(w, r, "/ledger", "已载入当前账号专属模拟账单，可继续生成方案")
 }

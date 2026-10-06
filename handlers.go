@@ -12,12 +12,6 @@ import (
 	"time"
 )
 
-type dashboardData struct {
-	Profile          profile
-	Cashflow         cashflow
-	Plan             *plan
-	TransactionCount int
-}
 type planData struct {
 	Plan     *plan
 	Profile  profile
@@ -59,14 +53,6 @@ func (a *app) latestPlan(userID int64) (*plan, error) {
 	}
 	p.Narrative = narrative
 	return &p, nil
-}
-
-func (a *app) dashboard(w http.ResponseWriter, r *http.Request) {
-	u := currentUser(r)
-	p, _ := a.getProfile(u.ID)
-	cash, _ := a.summarizeCashflow(u.ID)
-	latest, _ := a.latestPlan(u.ID)
-	a.render(w, r, "dashboard.html", pageData{Title: "财务总览", Active: "home", Payload: dashboardData{Profile: p, Cashflow: cash, Plan: latest, TransactionCount: cash.Count}})
 }
 
 func (a *app) planPage(w http.ResponseWriter, r *http.Request) {

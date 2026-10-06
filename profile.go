@@ -95,7 +95,11 @@ func (a *app) saveProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "画像保存失败", 500)
 		return
 	}
-	redirect(w, r, "/profile", "画像已保存")
+	if p.Confirmed {
+		redirect(w, r, "/ledger", "画像已确认，下一步建立账本")
+	} else {
+		redirect(w, r, "/profile", "画像草稿已保存，请核对后确认")
+	}
 }
 
 func defaultZero(v string) string {

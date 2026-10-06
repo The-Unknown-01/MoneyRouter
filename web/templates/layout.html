@@ -1,26 +1,35 @@
 {{define "layout_start"}}<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#102b33"><title>{{.Title}} · 稳序</title><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head>
-<body class="{{if .User}}app-body{{else}}auth-body{{end}}">
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f7f9f7">
+  <title>{{.Title}} · 稳序</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/flow.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body class="{{if .User}}flow-body{{else}}flow-auth-body{{end}}">
 {{if .User}}
-<aside class="sidebar">
-  <a class="brand" href="/"><span class="brand-mark">◈</span><span><strong>稳序</strong><small>FINANCIAL COMPASS</small></span></a>
-  <div class="sidebar-label">工作空间</div>
-  <nav class="nav">
-    <a href="/" class="{{if eq .Active "home"}}active{{end}}"><span>⌂</span> 财务总览</a>
-    <a href="/ledger" class="{{if eq .Active "ledger"}}active{{end}}"><span>▤</span> 账单工作台</a>
-    <a href="/profile" class="{{if eq .Active "profile"}}active{{end}}"><span>◇</span> 财务画像</a>
-    <a href="/plan" class="{{if eq .Active "plan"}}active{{end}}"><span>◫</span> 我的方案</a>
-    <a href="/review" class="{{if eq .Active "review"}}active{{end}}"><span>▦</span> 月末复盘</a>
-    <a href="/chat" class="{{if eq .Active "chat"}}active{{end}}"><span>✦</span> 方案答疑</a>
-  </nav>
-  <div class="sidebar-bottom"><div class="user-pill"><span class="avatar">{{printf "%.1s" .User.Username}}</span><span><strong>{{.User.Username}}</strong><small>个人工作空间</small></span></div><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="link-button" type="submit">退出登录 ↗</button></form></div>
-</aside>
-<div class="mobile-nav"><a href="/">总览</a><a href="/ledger">账本</a><a href="/profile">画像</a><a href="/plan">方案</a><a href="/review">复盘</a><a href="/chat">答疑</a></div>
-<main class="main">
-  <header class="topbar"><div class="crumb">个人财务工作台 <span>/</span> {{.Title}}</div><div class="topbar-right"><span class="live-dot"></span> 专属空间 <span class="topbar-date">{{monthNow}}</span></div></header>
-  {{if .Flash}}<div class="toast success">✓ {{.Flash}}</div>{{end}}{{if .Error}}<div class="toast error">{{.Error}}</div>{{end}}
+  <header class="flow-header">
+    <div class="flow-header-inner">
+      <a class="flow-brand" href="/" aria-label="回到当前步骤"><span class="brand-mark">◈</span><span><strong>稳序</strong><small>一步一步，安排好每笔钱</small></span></a>
+      <div class="flow-account"><span>{{.User.Username}}</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">退出</button></form></div>
+    </div>
+  </header>
+  <main class="flow-main">
+    <nav class="flow-progress" aria-label="规划进度">
+      <span class="{{if eq .Active "profile"}}current{{else}}done{{end}}"><b>01</b> 了解你</span>
+      <i aria-hidden="true"></i>
+      <span class="{{if eq .Active "profile"}}upcoming{{else if eq .Active "ledger"}}current{{else}}done{{end}}"><b>02</b> 建立账本</span>
+      <i aria-hidden="true"></i>
+      <span class="{{if or (eq .Active "plan") (eq .Active "review") (eq .Active "chat")}}current{{else}}upcoming{{end}}"><b>03</b> 你的方案</span>
+    </nav>
+    {{if .Flash}}<div class="toast success" role="status">✓ {{.Flash}}</div>{{end}}
+    {{if .Error}}<div class="toast error" role="alert">{{.Error}}</div>{{end}}
 {{else}}
-  {{if .Flash}}<div class="auth-toast success">{{.Flash}}</div>{{end}}{{if .Error}}<div class="auth-toast error">{{.Error}}</div>{{end}}
+    {{if .Flash}}<div class="auth-toast success">{{.Flash}}</div>{{end}}
+    {{if .Error}}<div class="auth-toast error">{{.Error}}</div>{{end}}
 {{end}}
 {{end}}
 {{define "layout_end"}}{{if .User}}</main>{{end}}</body></html>{{end}}

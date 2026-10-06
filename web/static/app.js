@@ -3,6 +3,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (form) {
     const fields = { id:'tx-id', date:'tx-date', direction:'tx-direction', amount:'tx-amount', category:'tx-category', description:'tx-description', note:'tx-note' };
     document.querySelectorAll('.edit-row').forEach(button => button.addEventListener('click', () => {
+      const manualEntry = document.querySelector('.entry-choice');
+      if (manualEntry) manualEntry.open = true;
       for (const [key, element] of Object.entries(fields)) document.getElementById(element).value = button.dataset[key] || '';
       document.getElementById('tx-submit').textContent = '保存修改 →';
       form.scrollIntoView({behavior:'smooth',block:'start'});
