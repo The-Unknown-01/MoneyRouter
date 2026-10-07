@@ -1,0 +1,19 @@
+langchain>=1.0,<2.0
+langchain-core>=1.0,<2.0
+langgraph>=1.0,<2.0
+langchain-deepseek
+langsmith>=0.3.0
+pydantic>=2.7
+python-dotenv>=1.0
+
+# 结构化行情/宏观数据（免密钥）。注意：AKShare 依赖 pandas，安装体积较大，
+# 在 1 vCPU / 1GiB 的目标机器上属于最重的一项依赖。
+akshare>=1.19
+
+# test
+pytest>=8.0
+pytest-asyncio>=0.23
+
+# api (预留，暂不启用)
+# fastapi>=0.110
+# uvicorn>=0.29

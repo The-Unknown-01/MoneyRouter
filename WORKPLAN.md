@@ -42,6 +42,17 @@ CSV 提供通用模板和字段映射器，兼容常见导出列名，但以实�
 
 官方文档确认 V4.1 Flash 的 API 模型 ID 为 `deepseek-flash`，接口基址为 `https://api.deepseek.com`，支持结构化输出和工具调用：[接入文档](https://api-docs.deepseek.com/guides/codex)、[Responses API](https://api-docs.deepseek.com/api/create-response/)。仓库当前的密钥位于 `.env/deepseek_api.key`（这是目录下的密钥文件，不是普通 dotenv 格式的 `.env` 文件）。实现时由服务端读取该文件，或读取部署环境变量 `DEEPSEEK_API_KEY`；不向浏览器下发。首个开发步骤要将 `.env/`、`.env.local` 加入 `.gitignore`，并检查 Git 跟踪状态。模型请求使用汇总数据和必要字段，减少令牌开销。
 
+**思考模式与结构化输出（2026-10 按官方文档复核后确定，Python agent 侧已落地）：**
+
+- **思考模式默认开启**（官方默认）。开关 `{"thinking": {"type": "enabled"/"disabled"}}`，用 OpenAI SDK 时须放在 `extra_body`；力度用 `reasoning_effort`（`low`/`high`/`max`）。见 [Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode)。
+- 思考模式下 **`temperature` / `presence_penalty` / `frequency_penalty` 官方明确无效**（不报错但不起作用）；`top_p` 仅该模式生效，有效区间 0.95–1.0。故该模式**不再发送 `temperature`**。
+- 思维链经 `reasoning_content` 返回。**不带 `tools` 的请求不需要回传历史 reasoning_content**（传了也会被忽略）；**带 `tools` 时则必须回传，否则 400**。
+- **结构化输出走官方 JSON Output**（`response_format={"type":"json_object"}`），并满足官方三条硬性要求：① prompt 中出现 "json" 字样；② **给出期望 JSON 格式的示例**；③ `max_tokens` 足够大以免截断。见 [JSON Output](https://api-docs.deepseek.com/guides/json_mode)。
+- **思考模式下无法强制 `tool_choice`**（实测 `required` 与工具强绑均返回 400 `Thinking mode does not support this tool_choice`），因此**不使用 function_calling 路线**；`json_schema` 在 `langchain_deepseek` 中也会被静默转成 function_calling。
+- 官方承认 JSON Output **偶发返回空内容**（"may occasionally return empty content"）。工程上以「schema 派生的字段清单 + 具体 JSON 示例」+ **模型层有界重试**应对：改造后实测同一组多轮输入连打 10 次，**10/10 成功且均一次通过**（改造前仅给 JSON Schema 时 8 次失败 2 次）。
+- API 是**无状态**的，每轮必须回传完整历史。
+
+
 ## 4. 方案生成规则
 
 **方案由 Agent 在受控 workflow 中生成**：Agent 决定是否追问、调用哪些专业计算工具、如何解释权衡与给出候选方案；工具返回可复算的数字、约束和出处。Agent 不能凭文字绕过现金流、风险和总额校验。这样既保留个性化推理，也让每个金额都有明确的算法来源。
