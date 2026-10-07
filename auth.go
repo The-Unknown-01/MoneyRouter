@@ -43,12 +43,18 @@ func (a *app) withUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("finance_session")
 		if err != nil || cookie.Value == "" {
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("HX-Redirect", "/login")
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		var u user
 		err = a.db.QueryRow(`SELECT u.id,u.username,s.csrf FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`, tokenHash(cookie.Value), utcNow()).Scan(&u.ID, &u.Username, &u.CSRF)
 		if err != nil {
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("HX-Redirect", "/login")
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}

@@ -118,9 +118,24 @@ def test_tool_loop_then_finalize() -> None:
     assert model.calls == 2  # 一次调工具、一次收尾
     assert result.plan is not None
     assert result.plan.headline == "本月资金安排"
-    assert "现金流部分" in result.plan.narrative
+    assert "10,000.00" in result.plan.narrative
+    assert "现金流部分" not in result.plan.narrative
     assert result.awaiting_confirmation is True
-    assert result.reply == "这是我给您的安排。"
+    assert result.reply == result.plan.narrative
+
+
+def test_final_explanation_uses_recomputed_amounts_instead_of_stale_model_sections():
+    agent, _ = _agent(
+        [AIMessage(content="资料够了。")],
+        [PlanTurnDecision(status="finalize", reply="请核对。", wants_ratio_pct=10,
+                          sections=["可选预算3000元，可储蓄5000元。工具的旧值。"])]
+    )
+    result = agent.plan("fresh-narrative")
+    assert result.validation.ok
+    assert result.plan.budget.wants_cents == 100_000
+    assert "可选开支 1,000.00 元" in result.plan.narrative
+    assert "旧值" not in result.plan.narrative
+    assert result.reply == result.plan.narrative
 
 
 # --------------------------------------------------------------------------- #

@@ -31,7 +31,8 @@ class PlanTurnDecision(BaseModel):
         default_factory=list, description="还缺哪些关键资料（如收入、债务还款、可承受风险）。"
     )
     wants_ratio_pct: float | None = Field(
-        default=None, description="可选支出上限占收入的比例（%）；不确定就留空，系统会用默认值。"
+        default=None, description="应用经验之前的基础可选支出上限占收入的比例（%）。"
+        "工具返回的比例已应用经验，不能将它再填成基础比例。无明确的新约束就留空，系统会用默认值。"
     )
     risk_level_override: RiskLevel | None = Field(
         default=None, description="若用户明确表达了风险偏好，可填；最终只会更保守，不会更高。"

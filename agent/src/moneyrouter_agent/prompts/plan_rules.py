@@ -21,7 +21,7 @@ def render_plan_narrative(plan: Plan) -> str:
 
     parts: list[str] = []
     parts.append(
-        f"按您近几个月的收支，月均收入约 {format_yuan(cf.income_cents)} 元，"
+        f"按您已提供的收支，月均收入约 {format_yuan(cf.income_cents)} 元，"
         f"必要开支约 {format_yuan(cf.necessary_cents)} 元、债务还款约 {format_yuan(cf.debt_cents)} 元。"
         f"在留出可选开支 {format_yuan(budget.wants_cents)} 元后，计划每月结余约 "
         f"{format_yuan(budget.savings_cents)} 元。"

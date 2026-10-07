@@ -12,6 +12,7 @@
 """
 
 from __future__ import annotations
+from .checkpoints import context as checkpoint_context
 
 from typing import Any, Callable
 
@@ -207,6 +208,17 @@ class SummaryAgent:
 
             paused = bool(self.graph.get_state(config).next)
             if paused:
+                saved = checkpoint_context(self.graph.checkpointer, thread_id)
+                if saved:
+                    from .domain.plan import Plan
+                    from .domain.experience import ExperiencePack
+                    from .domain.profile_delta import ProfileEvent
+                    self.code.set_inputs(
+                        record=MonthRecord.model_validate(saved["record"]) if saved["record"] else None,
+                        plan=Plan.model_validate(saved["plan"]) if saved["plan"] else None,
+                        prior_pack=ExperiencePack.model_validate(saved["pack"]) if saved["pack"] else None,
+                        prior_events=[ProfileEvent.model_validate(e) for e in saved["events"]],
+                    )
                 payload = resume if resume is not None else {"action": "confirm"}
                 self.graph.invoke(Command(resume=payload), config)
             else:
@@ -221,6 +233,12 @@ class SummaryAgent:
                 )
                 if not target and self.code.record is not None:
                     target = self.code.period
+                checkpoint_context(self.graph.checkpointer, thread_id, {
+                    "record": self.code.record.model_dump(mode="json") if self.code.record else None,
+                    "plan": self.code.plan.model_dump(mode="json") if self.code.plan else None,
+                    "pack": self.code.prior_pack.model_dump(mode="json") if self.code.prior_pack else None,
+                    "events": [e.model_dump(mode="json") for e in self.code.prior_events],
+                })
                 self.graph.invoke({"period": target, "feedback": ""}, config)
         except Exception as exc:  # noqa: BLE001 - 不抛给调用方，转为可读状态
             snapshot = self.snapshot(thread_id)
@@ -292,6 +310,7 @@ class SummaryAgent:
             reasoning=values.get("reasoning"),
             trace=list(values.get("trace") or []),
             write_warnings=list(self.write_warnings),
+            event_warnings=list(values.get("event_warnings") or []),
         )
 
 

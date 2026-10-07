@@ -277,11 +277,13 @@ def extract_reasoning(raw: BaseMessage | None) -> str | None:
     return None
 
 
-def _retry_reminder() -> HumanMessage:
+def _retry_reminder(*, truncated: bool = False) -> HumanMessage:
     """重试时的纠正指令：官方 JSON Output 要求 prompt 含 "json" 字样。"""
     return HumanMessage(
         content=(
-            "上一次你没有返回任何内容。请只输出一个合法的 json 对象："
+            ("上一次输出被长度上限截断，请缩短叙述并输出完整 json。" if truncated else
+             "上一次结构化输出无效或为空。请只输出一个合法的 json 对象：")
+            +
             "从 { 开始、以 } 结束，不要留空，不要 markdown 代码块，不要任何额外说明。"
         )
     )
@@ -294,6 +296,7 @@ def make_structured_runner(
     method: str = "json_mode",
     max_attempts: int = 3,
     backoff_s: float = 0.0,
+    initial_max_tokens: int | None = None,
 ) -> Callable[[list[BaseMessage]], StructuredCall[T]]:
     """返回 ``(messages) -> StructuredCall``；内部做有界重试，失败抛错交给节点降级。"""
     runnable = model.with_structured_output(schema, method=method, include_raw=True)
@@ -301,12 +304,26 @@ def make_structured_runner(
 
     def run(messages: list[BaseMessage]) -> StructuredCall[T]:
         last_error: Any = None
+        retry_tokens: int | None = None
+        truncated = False
         for attempt in range(1, max_attempts + 1):
             payload: list[BaseMessage] = [*messages, instruction]
             if attempt > 1:
-                payload.append(_retry_reminder())
+                payload.append(_retry_reminder(truncated=truncated))
             try:
-                outcome = runnable.invoke(payload)
+                attempt_runnable = runnable
+                if retry_tokens:
+                    # include_raw wraps the model in RunnableParallel, whose
+                    # invoke kwargs are not forwarded. Rebuild the copied model.
+                    updates = {"max_tokens": retry_tokens}
+                    if truncated and attempt == max_attempts:
+                        # Final recovery attempt: schema-only tasks must not spend
+                        # their entire budget on reasoning and return no JSON.
+                        updates.update(extra_body={**(getattr(model, "extra_body", None) or {}), **THINKING_OFF},
+                                       temperature=0, reasoning_effort=None)
+                    retry_model = model.model_copy(update=updates)
+                    attempt_runnable = retry_model.with_structured_output(schema, method=method, include_raw=True)
+                outcome = attempt_runnable.invoke(payload)
             except Exception as exc:  # noqa: BLE001 - 调用失败也算一次尝试
                 last_error = exc
             else:
@@ -320,6 +337,12 @@ def make_structured_runner(
                 last_error = outcome.get("parsing_error") or StructuredOutputError(
                     schema, attempt, "空内容"
                 )
+            truncated = type(last_error).__name__ == "LengthFinishReasonError"
+            if truncated and initial_max_tokens is not None:
+                # Thinking tokens share the output budget. Retry with more room,
+                # bounded by both the attempt limit and a 16k recovery ceiling.
+                ceiling = max(initial_max_tokens, 16384)
+                retry_tokens = min(ceiling, (retry_tokens or initial_max_tokens) * 2)
             if attempt < max_attempts and backoff_s > 0:
                 time.sleep(backoff_s * attempt)
         raise StructuredOutputError(schema, max_attempts, last_error)
@@ -338,6 +361,7 @@ def make_schema_runner(
         build_chat_model(settings, **overrides),
         schema,
         max_attempts=settings.structured_max_attempts,
+        initial_max_tokens=overrides.get("max_tokens", settings.max_tokens),
     )
 
 

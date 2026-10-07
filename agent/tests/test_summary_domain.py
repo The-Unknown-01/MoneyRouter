@@ -92,6 +92,22 @@ def test_plan_unavailable_leaves_planned_none_and_says_so():
     assert any("没有可对照的方案" in note for note in diff.notes)
 
 
+def test_other_month_plan_cannot_generate_spurious_budget_lessons():
+    diff = build_diff(_snapshot(), plan=_plan(period="2026-10"))
+    assert not diff.plan_available
+    assert all(item.planned_cents is None and item.delta_cents is None for item in diff.layers)
+    assert not any(item.kind == "wants_down" for item in build_candidates(diff))
+    assert any("已排除" in note for note in diff.notes)
+
+
+def test_zero_budget_is_known_and_compared():
+    plan = _plan(budget=BudgetBaseline(income_cents=1_000_000, necessary_cents=300_000,
+                                     wants_cents=0, savings_cents=700_000))
+    diff = build_diff(_snapshot(), plan=plan)
+    assert layer_of(diff, "wants").planned_cents == 0
+    assert layer_of(diff, "wants").delta_cents == 400_000
+
+
 def test_layers_compare_same_caliber_only():
     diff = build_diff(_snapshot(), plan=_plan())
 

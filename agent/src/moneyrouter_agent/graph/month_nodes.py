@@ -115,6 +115,9 @@ def _overlay_code_layer(model_snapshot: MonthSnapshot, base: MonthSnapshot) -> M
     allocation = merge_allocation(base.allocation, model_snapshot.allocation)
     investments = merge_investments(base.investments, model_snapshot.investments)
     update: dict[str, Any] = {
+        "coverage_complete": base.coverage_complete,
+        "coverage_start": base.coverage_start, "coverage_end": base.coverage_end,
+        "review_required_count": base.review_required_count, "accounting_basis": base.accounting_basis,
         "categories": merged_categories,
         "income": income,
         "one_offs": one_offs,
@@ -208,12 +211,16 @@ def make_ingest(*, one_off_min_cents: int, parser: Any | None = None):
             }
 
         base: MonthSnapshot = state.get("snapshot") or MonthSnapshot(period=period)
-        merged_categories = merge_categories(base.categories, parsed.categories)
-        snapshot = base.model_copy(update={"categories": merged_categories})
-        if snapshot.income is None and parsed.income is not None:
-            snapshot = snapshot.model_copy(update={"income": parsed.income})
+        merged_categories = merge_categories([c for c in base.categories if c.source != SOURCE_FILE], parsed.categories)
+        snapshot = base.model_copy(update={"categories": merged_categories,
+            "coverage_complete": parsed.coverage_complete,
+            "coverage_start": parsed.coverage_start, "coverage_end": parsed.coverage_end,
+            "review_required_count": parsed.review_required_count, "accounting_basis": parsed.accounting_basis,
+            "income": parsed.income if parsed.income is not None else (base.income if base.income and base.income.source != SOURCE_FILE else None),
+            "one_offs": [item for item in base.one_offs if item.source != SOURCE_FILE],
+        })
         if parsed.one_offs:
-            snapshot = snapshot.model_copy(update={"one_offs": _merge_one_offs(base.one_offs, parsed.one_offs)})
+            snapshot = snapshot.model_copy(update={"one_offs": _merge_one_offs(snapshot.one_offs, parsed.one_offs)})
         # 规范文档可以直接带来「结余去向」与「已有投资的收益」——都是文件来源，优先于口述
         if parsed.allocation is not None:
             snapshot = snapshot.model_copy(

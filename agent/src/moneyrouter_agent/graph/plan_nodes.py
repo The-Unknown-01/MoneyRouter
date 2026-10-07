@@ -411,18 +411,17 @@ def make_compose(context: PlanContext) -> Callable[[dict], dict]:
         if adjustment is None and decision is not None:
             if decision.headline:
                 plan.headline = decision.headline
-            sections = [s for s in (decision.sections or []) if s]
-            if sections:
-                plan.narrative = "\n".join(sections)
             for caveat in decision.caveats or []:
                 if caveat and caveat not in plan.warnings:
                     plan.warnings.append(caveat)
-        if not plan.narrative:
-            plan.narrative = render_plan_narrative(plan)
+        # Tools run before the decision and its strategy changes. Their numbers
+        # may be stale after compose; final money explanations use this plan.
+        plan.narrative = render_plan_narrative(plan)
         if not plan.headline:
             plan.headline = _default_headline(plan)
 
-        return {"plan": plan, "trace": ["compose：按输入与策略跑完七步，生成规范方案"]}
+        return {"plan": plan, "messages": [AIMessage(content=plan.narrative)],
+                "trace": ["compose：按输入与策略跑完七步，生成规范方案及最终金额说明"]}
 
     return compose
 
@@ -504,6 +503,9 @@ def confirm_node(state: dict) -> Command:
     """
     plan: Plan = state.get("plan") or Plan()
     validation: ValidationReport = state.get("validation") or ValidationReport()
+    if not validation.ok:
+        return Command(goto=END, update={"confirmed": False, "awaiting_confirmation": False,
+                                        "ready_to_finalize": False})
     payload = {
         "type": "plan_confirmation",
         "plan": plan.model_dump(exclude_none=True),
@@ -555,9 +557,19 @@ def make_fallback(context: PlanContext) -> Callable[[dict], dict]:
             "plan": plan,
             "validation": report,
             "degraded": True,
-            "ready_to_finalize": True,
-            "awaiting_confirmation": True,
+            "confirmed": False,
+            "ready_to_finalize": report.ok,
+            "awaiting_confirmation": report.ok,
+            "messages": [AIMessage(content=(
+                plan.narrative if report.ok else
+                "方案暂不能确认，请补充或核对资料：" + "；".join(issue.message for issue in report.issues)
+            ))],
             "trace": ["fallback：模型不可用/复核未通过，改用确定性管线并标为降级"],
         }
 
     return fallback
+
+
+def route_after_fallback(state: dict) -> str:
+    report = state.get("validation")
+    return CONFIRM if report is not None and report.ok else "wait"

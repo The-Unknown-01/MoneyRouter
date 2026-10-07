@@ -2,7 +2,7 @@
 
     START → ingest → agent ⇄ tools → decide ──(ask)──→ END（等下一句）
                                             └─(finalize)─→ compose → validate ──ok──→ confirm
-                                                                        └─fail─→ fallback → confirm
+                                                                        └─fail─→ fallback → 校验通过才 confirm
     confirm ──confirm──→ END
             ├─edit────→ adjust → compose（重算 + 复核 → 回 confirm）
             └─more────→ agent
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.checkpoint.memory import InMemorySaver
+from ..checkpoints import make_checkpointer
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -44,6 +44,7 @@ from .plan_nodes import (
     make_validate,
     route_after_agent,
     route_after_decide,
+    route_after_fallback,
     route_after_validate,
 )
 from .plan_state import PlanState
@@ -69,9 +70,9 @@ ALLOWED_MSGPACK_MODULES: list[tuple[str, ...]] = [
 ]
 
 
-def default_checkpointer() -> InMemorySaver:
-    """默认的内存检查点（允许我们的领域模型参与序列化）。"""
-    return InMemorySaver(serde=JsonPlusSerializer(allowed_msgpack_modules=ALLOWED_MSGPACK_MODULES))
+def default_checkpointer() -> Any:
+    """默认持久化检查点（允许我们的领域模型参与序列化）。"""
+    return make_checkpointer('plan', ALLOWED_MSGPACK_MODULES)
 
 
 def build_plan_graph(
@@ -84,7 +85,7 @@ def build_plan_graph(
     max_tool_rounds: int = 4,
     checkpointer: Any | None = None,
 ) -> Any:
-    """构建并编译方案生成图（默认内存检查点）。"""
+    """构建并编译方案生成图（默认持久化检查点）。"""
     builder = StateGraph(PlanState)
     builder.add_node(INGEST, make_ingest(context))
     builder.add_node(AGENT, make_agent(agent_runner, context, max_tool_rounds=max_tool_rounds))
@@ -120,7 +121,7 @@ def build_plan_graph(
         {CONFIRM: CONFIRM, FALLBACK: FALLBACK},
     )
     builder.add_edge(ADJUST, COMPOSE)
-    builder.add_edge(FALLBACK, CONFIRM)
+    builder.add_conditional_edges(FALLBACK, route_after_fallback, {CONFIRM: CONFIRM, "wait": END})
     # CONFIRM 无静态出边：去向由 Command(goto=...) 决定（END / ADJUST / AGENT）
 
     return builder.compile(checkpointer=checkpointer if checkpointer is not None else default_checkpointer())

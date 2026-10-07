@@ -1,8 +1,9 @@
 """「最干净的格式」——本月实况导入文档（规范 JSON）。
 
 这是本模块的**规范输入**：各家账单导出（微信 / 支付宝 / 银行 / 券商……）由**转换器**
-统一转成这份文档之后再进来，解析侧就只需面对一种形状。转换器尚未实现；在那之前，
-手工整理成这份 JSON 也能直接跑通全流程。
+统一转成这份文档之后再进来，解析侧就只需面对一种形状。转换器见
+:mod:`moneyrouter_agent.tools.bill_cleaner`（目前覆盖支付宝 CSV 与微信 XLSX 两个来源）；
+在那之外的格式，手工整理成这份 JSON 也能直接跑通全流程。
 
 ## 文档形状
 
@@ -334,6 +335,15 @@ class DossierParser:
             parsed.investments = _parse_investments(investments, parsed.warnings)
 
         parsed.period = target
+        coverage = document.get("coverage") or {}
+        if isinstance(coverage, dict):
+            parsed.coverage_complete = coverage.get("complete") if isinstance(coverage.get("complete"), bool) else None
+            parsed.coverage_start = str(coverage.get("start") or "")
+            parsed.coverage_end = str(coverage.get("end") or "")
+            if parsed.coverage_complete is False:
+                parsed.warnings.append("账单仅覆盖部分月份，不纳入完整月度基线。")
+        parsed.review_required_count = sum(bool(item.get("review_reason")) for item in document.get("cashflow", []) if isinstance(item, dict))
+        parsed.accounting_basis = str(document.get("accounting_basis") or "platform")
         return parsed
 
 

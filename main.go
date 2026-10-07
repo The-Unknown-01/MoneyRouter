@@ -19,6 +19,7 @@ import (
 var webFiles embed.FS
 
 type app struct {
+	bridge   *agentBridge
 	db       *database
 	tpl      *template.Template
 	deepseek *deepseekClient
@@ -40,7 +41,7 @@ type pageData struct {
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
-	dataDir := flag.String("data", "data", "SQLite data directory")
+	dataDir := flag.String("data", "data-web", "SQLite data directory (new integrated application)")
 	backup := flag.String("backup", "", "create a consistent SQLite backup at this new path and exit")
 	flag.Parse()
 	if err := os.MkdirAll(*dataDir, 0700); err != nil {
@@ -60,6 +61,7 @@ func main() {
 	}
 	a := &app{db: db, deepseek: newDeepseekClient(), news: newNewsClient(), sem: make(chan struct{}, 2), previews: newPreviewStore(), authRate: newRateLimiter()}
 	a.tpl = newTemplates()
+	a.bridge = newAgentBridge()
 	server := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 65 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	log.Printf("finance listening on %s", *addr)
 	log.Fatal(server.ListenAndServe())
@@ -68,6 +70,7 @@ func main() {
 func newTemplates() *template.Template {
 	return template.Must(template.New("layout.html").Funcs(template.FuncMap{
 		"money":      formatMoney,
+		"cents":      displayCents,
 		"moneyInput": func(v int64) string { return fmt.Sprintf("%d.%02d", v/100, v%100) },
 		"percent":    func(v int) string { return fmt.Sprintf("%d%%", v) },
 		"date": func(v string) string {
@@ -84,6 +87,9 @@ func newTemplates() *template.Template {
 }
 
 func (a *app) routes() http.Handler {
+	if a.bridge != nil {
+		return a.integratedRoutes()
+	}
 	mux := http.NewServeMux()
 	staticFS, err := fs.Sub(webFiles, "web/static")
 	if err != nil {
@@ -149,7 +155,7 @@ func (a *app) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 		if r.Method == http.MethodPost && !sameOrigin(r) {
 			http.Error(w, "请求来源无效", http.StatusForbidden)
 			return

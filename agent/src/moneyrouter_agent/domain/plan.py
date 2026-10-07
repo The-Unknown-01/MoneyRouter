@@ -285,7 +285,7 @@ class Plan(BaseModel):
     data_quality: DataQuality = Field(default_factory=DataQuality)
     warnings: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list, description="来源标签（画像/账单/金融简报/经验）。")
-    narrative: str = Field(default="", description="解释（模型写；复述代码数字，不新增数值）。")
+    narrative: str = Field(default="", description="按最终方案金额由代码生成的解释。")
     lessons_applied: list[str] = Field(default_factory=list, description="生效的经验条目 id。")
     degraded: bool = False
     error: str | None = None
@@ -326,7 +326,7 @@ def _months_for_average(inputs: PlanInputs) -> list[MonthSnapshot]:
     for snap in list(inputs.history or []) + ([inputs.snapshot] if inputs.snapshot else []):
         key = snap.period or f"#{len(merged)}"
         merged[key] = snap
-    months = [s for s in merged.values() if s.income is not None or s.categories]
+    months = [s for s in merged.values() if s.coverage_complete is not False and (s.income is not None or s.categories)]
     if len(months) <= MAX_MONTHS_FOR_AVERAGE:
         return months
     return months[-MAX_MONTHS_FOR_AVERAGE:]
@@ -493,7 +493,7 @@ def allocate_budget(cashflow: CashflowSummary, strategy: PlanStrategy) -> Budget
 def _reserve_months(profile: Profile | None, strategy: PlanStrategy) -> tuple[int, str]:
     override = strategy.reserve_months_override
     if override in (RESERVE_MONTHS_STABLE, RESERVE_MONTHS_UNSTABLE):
-        return int(override), f"按用户指定取 {int(override)} 个月"
+        return int(override), f"按方案策略取 {int(override)} 个月"
 
     income_stable = bool(profile.income_stable) if profile and profile.income_stable is not None else False
     family_load = bool(profile.family_load) if profile and profile.family_load is not None else False
@@ -501,6 +501,10 @@ def _reserve_months(profile: Profile | None, strategy: PlanStrategy) -> tuple[in
         return RESERVE_MONTHS_STABLE, "收入稳定且无家庭负担，取 3 个月"
     if not income_stable and family_load:
         return RESERVE_MONTHS_UNSTABLE, "收入不稳定且有家庭负担，取 6 个月"
+    if profile is not None and profile.income_stable is False:
+        return RESERVE_MONTHS_UNSTABLE, "收入不稳定，取 6 个月"
+    if family_load:
+        return RESERVE_MONTHS_UNSTABLE, "有家庭负担，取 6 个月"
     return RESERVE_MONTHS_UNSTABLE, "收入或家庭负担不明确，按保守取 6 个月"
 
 
@@ -734,6 +738,13 @@ def build_plan(inputs: PlanInputs, strategy: PlanStrategy | None = None) -> Plan
     base_strategy = strategy or PlanStrategy()
     effects = apply_lessons(inputs.experience)
     effective = merge_strategy(base_strategy, effects)
+    return _build_with_effective_strategy(inputs, effective, effects)
+
+
+def _build_with_effective_strategy(
+    inputs: PlanInputs, effective: PlanStrategy, effects: ExperienceEffects
+) -> Plan:
+    """按已生效策略计算；复核复用此入口，不再叠加经验。"""
 
     cashflow = summarize_cashflow(inputs)
     budget = allocate_budget(cashflow, effective)
@@ -797,7 +808,7 @@ def _mismatch(issues: list[ValidationIssue], name: str, got: int, want: int) -> 
 
 def validate_plan(plan: Plan, inputs: PlanInputs) -> ValidationReport:
     """第 7 步：独立复核——按方案自身的策略重算一遍，逐项对账并检查硬约束。"""
-    ref = build_plan(inputs, plan.strategy)
+    ref = _build_with_effective_strategy(inputs, plan.strategy, apply_lessons(inputs.experience))
     issues: list[ValidationIssue] = []
 
     _mismatch(issues, "月均收入", plan.cashflow.income_cents, ref.cashflow.income_cents)

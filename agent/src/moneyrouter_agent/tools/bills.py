@@ -1,7 +1,8 @@
 """账单解析：原始账单 → 结构化事实（**代码负责，模型碰不到数字**）。
 
 **规范入口是** :mod:`moneyrouter_agent.tools.dossier` 的「本月实况导入文档」（JSON）——
-各家的导出格式由转换器统一转成它之后再进来。本模块的 CSV 解析器是**兼容入口**，
+各家的导出格式由 :mod:`moneyrouter_agent.tools.bill_cleaner` 统一转成它之后再进来
+（当前覆盖支付宝 CSV 与微信 XLSX）。本模块的 CSV 解析器是**兼容入口**，
 供手工整理过的宽表使用。
 
 可插拔：``BillParser`` 协议 + ``PARSERS`` 注册表。``parse_bill`` 不指定解析器时**自动识别**
@@ -72,6 +73,11 @@ class ParsedBill(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="目标统计期间 YYYY-MM。")
+    coverage_complete: bool | None = None
+    coverage_start: str = ""
+    coverage_end: str = ""
+    review_required_count: int = 0
+    accounting_basis: str = "platform"
     rows: list[BillRow] = Field(default_factory=list)
     categories: list[CategorySpend] = Field(default_factory=list, description="文件来源的分类支出。")
     income: IncomeFact | None = Field(default=None, description="文件里识别到的收入。")
@@ -91,6 +97,9 @@ class ParsedBill(BaseModel):
         """把解析结果转成"文件来源"的月度快照（供 ingest 节点并入）。"""
         return MonthSnapshot(
             period=period or self.period,
+            coverage_complete=self.coverage_complete,
+            coverage_start=self.coverage_start, coverage_end=self.coverage_end,
+            review_required_count=self.review_required_count, accounting_basis=self.accounting_basis,
             income=self.income,
             categories=list(self.categories),
             one_offs=list(self.one_offs),

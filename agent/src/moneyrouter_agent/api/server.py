@@ -1,62 +1,99 @@
-"""FastAPI 骨架（预留，本步不启用）。
+"""Loopback-only API for the Go gateway."""
+from contextlib import asynccontextmanager
+import hmac
+import os
+from pathlib import Path
+import re
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+from .service import Service, Command, VERSION
+from .contract import JobResponse
 
-启用方式::
+@asynccontextmanager
+async def lifespan(app):
+    if not os.getenv('AGENT_SERVICE_TOKEN'):
+        raise RuntimeError('AGENT_SERVICE_TOKEN must be configured')
+    app.state.service = Service(Path(os.getenv('MONEYROUTER_SERVICE_DIR', '.data/web')))
+    yield
+    app.state.service.close()
 
-    ./.venv/Scripts/python.exe -m pip install -e ".[api]"
-    ./.venv/Scripts/python.exe -m uvicorn moneyrouter_agent.api.server:app --port 8090
+app = FastAPI(title='MoneyRouter private API', version=VERSION, lifespan=lifespan)
 
-将来 Go 侧通过 ``POST /profile/turn`` 调用（或改为子进程 JSONL 承载）。
-本文件刻意不被包 ``__init__`` 引用，避免未装 fastapi 时影响主流程。
-"""
+@app.middleware('http')
+async def private(request: Request, call_next):
+    expected = os.getenv('AGENT_SERVICE_TOKEN', '')
+    if not expected or not hmac.compare_digest(request.headers.get('authorization', ''), 'Bearer ' + expected):
+        return JSONResponse({'detail': 'Unauthorized'}, status_code=401)
+    try:
+        length = int(request.headers.get('content-length', '0'))
+    except ValueError:
+        return JSONResponse({'detail': 'Invalid content length'}, status_code=400)
+    if length > 4 * 1024 * 1024:
+        return JSONResponse({'detail': 'Request too large'}, status_code=413)
+    return await call_next(request)
 
-from __future__ import annotations
+def user(value):
+    if not re.fullmatch(r'u[1-9][0-9]*', value):
+        raise HTTPException(422, 'Invalid user')
+    return value
 
-from fastapi import FastAPI
+@app.get('/healthz')
+@app.get('/readyz')
+def health(request: Request):
+    return {'status': 'ok', 'contract_version': VERSION}
 
-from ..agent import ProfileAgent
-from ..month_agent import MonthAgent
-from .contract import MonthTurnRequest, MonthTurnResult, TurnRequest, TurnResult
+@app.post('/v1/jobs', status_code=202, response_model=JobResponse)
+def submit(command: Command, request: Request):
+    try:
+        return request.app.state.service.submit(command)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
-agent = ProfileAgent()
-month_agent = MonthAgent()
+@app.get('/v1/users/{user_id}/jobs/{job_id}', response_model=JobResponse)
+def job(user_id: str, job_id: str, request: Request):
+    try:
+        return request.app.state.service.job(user(user_id), job_id)
+    except KeyError as exc:
+        raise HTTPException(404, 'Job not found') from exc
 
-app = FastAPI(title="MoneyRouter 画像访谈 Agent", version="0.1.0")
+@app.get('/v1/schema')
+def schema():
+    from .contract import TurnResult, MonthTurnResult, PlanResult, SummaryResult, FinanceBriefingResponse
+    from ..domain.profile import Profile
+    from ..domain.plan import PlanInputs
+    return {'contract_version': VERSION, 'schemas': {model.__name__: model.model_json_schema()
+        for model in (Command, JobResponse, Profile, PlanInputs, TurnResult, MonthTurnResult, PlanResult, SummaryResult, FinanceBriefingResponse)}}
 
+@app.get('/v1/users/{user_id}/state')
+def state(user_id: str, request: Request, period: str = ''):
+    if not re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', period):
+        raise HTTPException(422, 'Invalid period')
+    return request.app.state.service.state(user(user_id), period)
 
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
-    return {
-        "status": "ok",
-        "model": agent.settings.model,
-        "degraded": str(agent.settings.degraded),
-    }
+@app.post('/v1/users/{user_id}/invalidate')
+def invalidate(user_id: str, request: Request):
+    service = request.app.state.service
+    with service.user_lock(user(user_id)):
+        service.invalidate(user_id)
+    return {'revision': service.revision(user_id)}
 
-
-@app.post("/profile/turn", response_model=TurnResult)
-def profile_turn(request: TurnRequest) -> TurnResult:
-    """推进一轮对话；停在确认环节时用 ``resume`` 恢复。"""
-    return agent.turn(request.thread_id, request.user_message, resume=request.resume)
-
-
-@app.get("/profile/{thread_id}", response_model=TurnResult)
-def profile_snapshot(thread_id: str) -> TurnResult:
-    """只读查看某个会话的当前状态。"""
-    return agent.snapshot(thread_id)
-
-
-@app.post("/month/turn", response_model=MonthTurnResult)
-def month_turn(request: MonthTurnRequest) -> MonthTurnResult:
-    """推进一轮本月核对；停在核对环节时用 ``resume`` 恢复；首轮可带 ``bill`` / ``period``。"""
-    return month_agent.turn(
-        request.thread_id,
-        request.user_message,
-        resume=request.resume,
-        bill=request.bill,
-        period=request.period,
-    )
-
-
-@app.get("/month/{thread_id}", response_model=MonthTurnResult)
-def month_snapshot(thread_id: str) -> MonthTurnResult:
-    """只读查看某个本月核对会话的当前状态。"""
-    return month_agent.snapshot(thread_id)
+@app.post('/v1/users/{user_id}/clear')
+def clear(user_id: str, request: Request):
+    import shutil
+    service = request.app.state.service
+    uid = user(user_id)
+    with service.user_lock(uid), service.lock:
+        if service.db.execute("SELECT count(*) FROM jobs WHERE user=? AND status IN ('queued','running')", (uid,)).fetchone()[0]:
+            raise HTTPException(409, '请等待当前任务完成后清空')
+        for key in list(service.agents):
+            if key[0] == uid:
+                service.agents.pop(key).graph.checkpointer.conn.close()
+        target = (service.root / 'users' / uid).resolve()
+        if target.parent != (service.root / 'users').resolve():
+            raise HTTPException(422, 'Invalid path')
+        if target.exists():
+            shutil.rmtree(target)
+        with service.db:
+            for table in ('artifacts', 'revisions', 'jobs'):
+                service.db.execute('DELETE FROM ' + table + ' WHERE user=?', (uid,))
+    return {'status': 'ok'}

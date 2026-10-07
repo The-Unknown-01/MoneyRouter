@@ -14,6 +14,7 @@
 """
 
 from __future__ import annotations
+from .checkpoints import context as checkpoint_context
 
 from typing import Any, Callable
 
@@ -264,10 +265,23 @@ class MonthAgent:
         """推进一轮；若会话停在核对环节，则用 ``resume`` 恢复。首轮可带 ``bill`` / ``period``。"""
         config = self._config(thread_id)
         try:
+            saved = checkpoint_context(self.graph.checkpointer, thread_id)
+            if saved:
+                self.code.budget = saved["budget"]
+                self.code.goal = GoalAlignment.model_validate(saved["goal"]) if saved["goal"] else None
+                self.code.history = [MonthSnapshot.model_validate(s) for s in saved["history"]]
+            else:
+                checkpoint_context(self.graph.checkpointer, thread_id, {
+                    "budget": self.code.budget,
+                    "goal": self.code.goal.model_dump(mode="json") if self.code.goal else None,
+                    "history": [s.model_dump(mode="json") for s in self.code.history],
+                })
             # 先按当前期间把更早的月份装成基线，再让图跑
             self._refresh_history(config, period)
             paused = bool(self.graph.get_state(config).next)
             if paused:
+                if bill is not None:
+                    raise ValueError("会话正在核对，请先完成核对或使用新会话导入更新账单")
                 payload = resume if resume is not None else {"action": "confirm"}
                 self.graph.invoke(Command(resume=payload), config)
             else:
@@ -280,7 +294,11 @@ class MonthAgent:
                     "messages": [HumanMessage(content=user_message or OPENING_USER_TURN)]
                 }
                 existing = dict(self.graph.get_state(config).values or {})
-                if not existing.get("imported"):
+                if bill is not None and existing.get("period") and period and period != existing["period"]:
+                    raise ValueError("不同月份账单请使用不同会话")
+                if bill is not None:
+                    update.update(imported=False, confirmed=False, final_result=None)
+                if bill is not None or not existing.get("imported"):
                     if bill is not None:
                         update["bill_text"] = bill
                     if period:
@@ -291,6 +309,33 @@ class MonthAgent:
             return snapshot.model_copy(
                 update={"error": f"{type(exc).__name__}: {exc}", "degraded": True}
             )
+        return self._after_turn(self.snapshot(thread_id))
+
+    def prepare_confirmation(self, thread_id: str, *, supplements: dict | None = None) -> MonthTurnResult:
+        """Explicit user request to review available facts, including offline mode.
+
+        Reuses the existing finalize -> interrupt path. Unknown facts remain unknown.
+        """
+        from .domain.month import FundAllocation, InvestmentSnapshot
+        config = self._config(thread_id)
+        state = self.graph.get_state(config)
+        if state.next:
+            raise ValueError("会话已经等待核对")
+        snapshot = self.snapshot(thread_id).snapshot.model_copy(deep=True)
+        values = supplements or {}
+        for key in ("non_invested_cents", "invested_cents"):
+            if values.get(key) is not None:
+                value = values[key]
+                if not isinstance(value, int) or value < 0:
+                    raise ValueError("储蓄去向必须为非负整数分")
+                setattr(snapshot.allocation, key, value)
+        if values.get("has_investments") is not None:
+            if not isinstance(values["has_investments"], bool):
+                raise ValueError("投资情况无效")
+            snapshot.investments.has_investments = values["has_investments"]
+        self.graph.update_state(config, {"snapshot": self.code.recompute(snapshot),
+            "ready_to_finalize": True, "degraded": False, "error": None}, as_node="converse")
+        self.graph.invoke(None, config)
         return self._after_turn(self.snapshot(thread_id))
 
     def snapshot(self, thread_id: str) -> MonthTurnResult:

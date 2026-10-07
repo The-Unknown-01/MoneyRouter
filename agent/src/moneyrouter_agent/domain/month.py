@@ -312,6 +312,11 @@ class MonthSnapshot(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="统计期间 YYYY-MM。")
+    coverage_complete: bool | None = None
+    coverage_start: str = ""
+    coverage_end: str = ""
+    review_required_count: int = 0
+    accounting_basis: str = "platform"
     income: IncomeFact | None = Field(default=None, description="本月收入；未了解到就留空。")
     categories: list[CategorySpend] = Field(
         default_factory=list, description="各分类支出；没报到的分类不要编。"
@@ -469,7 +474,7 @@ def past_snapshots(history: list[MonthSnapshot] | None, period: str) -> list[Mon
     （上月 = 本月、近三月均值含本月），基线全成了 0 偏差，反而看不出异动。
     期间为空的快照（外部手工注入、没标月份）保留——它们本来就是按位置表达"之前的月份"。
     """
-    items = list(history or [])
+    items = [s for s in (history or []) if s.coverage_complete is not False]
     if not period:
         return items
     return [snap for snap in items if not snap.period or snap.period < period]
@@ -715,6 +720,10 @@ def recompute(
     )
 
     unsettled: list[str] = []
+    if refreshed.review_required_count:
+        unsettled.append("bill_review")
+    if refreshed.coverage_complete is False:
+        unsettled.append("partial_period")
     if refreshed.income is None:
         unsettled.append("income")
     alloc = refreshed.allocation

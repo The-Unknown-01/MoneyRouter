@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@source "../templates/*.html";
+@plugin "daisyui" {
+ themes: light --default;
+ logs: false;
+}
+@plugin "daisyui/theme" {
+ name: "light";
+ default: true;
+ --color-primary: #1c6857;
+ --color-primary-content: #ffffff;
+ --color-base-100: #ffffff;
+ --color-base-200: #f7f9f7;
+ --color-base-content: #214c40;
+ --radius-box: 1rem;
+ --radius-field: 0.65rem;
+}

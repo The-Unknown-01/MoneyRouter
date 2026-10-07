@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.checkpoint.memory import InMemorySaver
+from ..checkpoints import make_checkpointer
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 
@@ -67,11 +67,9 @@ ALLOWED_MSGPACK_MODULES: list[tuple[str, ...]] = [
 ]
 
 
-def default_checkpointer() -> InMemorySaver:
-    """默认的内存检查点（允许我们的领域模型参与序列化）。"""
-    return InMemorySaver(
-        serde=JsonPlusSerializer(allowed_msgpack_modules=ALLOWED_MSGPACK_MODULES)
-    )
+def default_checkpointer() -> Any:
+    """默认持久化检查点（允许我们的领域模型参与序列化）。"""
+    return make_checkpointer('summary', ALLOWED_MSGPACK_MODULES)
 
 
 def build_summary_graph(
@@ -80,7 +78,7 @@ def build_summary_graph(
     code: SummaryCodeLayer,
     checkpointer: Any | None = None,
 ) -> Any:
-    """构建并编译总结图（默认内存检查点）。"""
+    """构建并编译总结图（默认持久化检查点）。"""
     builder = StateGraph(SummaryState)
     builder.add_node(COLLECT, make_collect(code))
     builder.add_node(DIFF, make_diff(code))

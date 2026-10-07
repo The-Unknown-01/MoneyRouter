@@ -15,6 +15,16 @@ from ..domain.profile_delta import ProfileDelta
 from ..domain.probe import Probe
 from ..domain.summary import MonthlySummary
 
+CONTRACT_VERSION = "1"
+
+
+class JobResponse(BaseModel):
+    contract_version: str = CONTRACT_VERSION
+    job_id: str
+    status: str
+    result: dict[str, Any] | None = None
+    error: str | None = None
+
 
 class TurnRequest(BaseModel):
     """一次对话回合的请求体。"""
@@ -225,6 +235,7 @@ class SummaryResult(BaseModel):
     written: bool = Field(default=False, description="确认之后三份产物是否已写盘。")
     write_location: str | None = Field(default=None, description="写盘位置标识，仅供观测。")
     write_warnings: list[str] = Field(default_factory=list, description="写盘/读取时如实回报的问题。")
+    event_warnings: list[str] = Field(default_factory=list, description="画像变化被校验拒绝的原因。")
     degraded: bool = False
     error: str | None = None
     reasoning: str | None = Field(

@@ -127,6 +127,9 @@ class SummaryCodeLayer:
         articulation = (getattr(record, "articulation", "") or "").strip()
         if articulation:
             out.append(articulation)
+        notes = (getattr(getattr(record, "snapshot", None), "notes", "") or "").strip()
+        if notes and notes != articulation:
+            out.append(notes)
         return out[:8]
 
     def digest(self) -> str:
@@ -139,6 +142,12 @@ class SummaryCodeLayer:
             for probe in getattr(record, "probes", []) or []
             if getattr(probe, "status", "") == "answered" and getattr(probe, "answer", "")
         ]
+        articulation = (getattr(record, "articulation", "") or "").strip()
+        if articulation:
+            lines.append("本月已确认的实况结论：" + articulation)
+        notes = (getattr(getattr(record, "snapshot", None), "notes", "") or "").strip()
+        if notes and notes != articulation:
+            lines.append("本月记录的额外事实：" + notes)
         return "\n".join(lines)
 
     def open_events(self) -> list[ProfileEvent]:

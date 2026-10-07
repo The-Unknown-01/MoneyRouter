@@ -25,6 +25,7 @@ from moneyrouter_agent.tools import market_data as md
 @pytest.fixture(autouse=True)
 def _isolate_agent_dirs(tmp_path, monkeypatch):
     """每个测试独占缓存目录、历史留档目录与总结落档目录，并清空进程内缓存。"""
+    monkeypatch.setenv("MONEYROUTER_CHECKPOINT_DIR", ":memory:")
     monkeypatch.setattr(md, "AGENT_ROOT", tmp_path)
     monkeypatch.setattr(history_mod, "AGENT_ROOT", tmp_path)
     monkeypatch.setattr(summary_store_mod, "AGENT_ROOT", tmp_path)

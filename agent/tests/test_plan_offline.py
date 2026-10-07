@@ -65,3 +65,18 @@ def test_offline_reply_has_no_chatty_filler() -> None:
     text = (result.plan.narrative if result.plan else "") + result.reply
     for banned in ("咱们", "好呀", "～"):
         assert banned not in text
+
+
+def test_invalid_fallback_cannot_be_confirmed_and_recovers_with_data() -> None:
+    agent = PlanAgent(settings=Settings(api_key=None, key_file=None), inputs=PlanInputs())
+    invalid = agent.plan("missing-month")
+    assert not invalid.validation.ok
+    assert not invalid.awaiting_confirmation
+    assert not invalid.ready_to_finalize
+    assert "补充" in invalid.reply
+    still_invalid = agent.plan("missing-month", resume={"action": "confirm"})
+    assert not still_invalid.confirmed
+    recovered = agent.plan("missing-month", inputs=_inputs())
+    assert recovered.validation.ok and recovered.awaiting_confirmation
+    confirmed = agent.plan("missing-month", resume={"action": "confirm"})
+    assert confirmed.confirmed

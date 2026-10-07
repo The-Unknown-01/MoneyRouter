@@ -1,4 +1,12 @@
-# 财务规划 WebApp（工行杯 MVP）
+# 稳序 WebApp · Python Agent + Go
+
+正式运行链路已整合为：浏览器 → Go（登录、账本、HTML 片段）→ 内部 HTTP/JSON → Python（五类 Agent、账单清洗、答疑与持久化）。前端采用 Go 模板、HTMX、daisyUI、ECharts，手机优先；不需要原生壳或前端 Node 服务。
+
+**当前运行与部署以 [双服务操作说明](docs/WEB_OPERATIONS.md) 为准。** 本地入口为 `./scripts/start-web.ps1 -Offline`；真实模型运行去掉 `-Offline`。数据使用新的 `data-web/go` 和 `data-web/agent`，旧数据目录保留。方案与复盘的算法、模型和数据结构以 Python 为准，旧 Go Agent 不再参与正式路由。
+
+验收结果见 [Web 整合验收记录](docs/WEB_ACCEPTANCE_2026-10-08.md)。下文为原 Go MVP 的历史说明，单独运行 Go 不能替代 Python 服务，旧算法与旧单库备份方式不适用于完整应用。
+
+---
 
 面向中国大陆个人用户的轻量财务规划演示：账号隔离、CSV/手填账本、画像问答、可复算方案 Agent workflow、月末复盘。产品需求见 [PRD](docs/PRD.md)，算法和验收依据见 [WORKPLAN](WORKPLAN.md)，单线程界面路径见 [UX_FLOW](docs/UX_FLOW.md)。
 

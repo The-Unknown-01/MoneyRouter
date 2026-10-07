@@ -52,14 +52,19 @@ cp .env.example .env   # 然后填 DEEPSEEK_API_KEY，或复用 ../.env/deepseek
 ./.venv/Scripts/python.exe scripts/finance_ctx.py --real --show-trace
 ./.venv/Scripts/python.exe scripts/finance_ctx.py --real --json      # 输出原始 JSON
 
-# 6) 本月实况 Agent（后馈的采集环节：核对这个月的情况）
+# 6) 账单清洗器（把支付宝 / 微信的原始导出洗成规范文档，类目交给 DeepSeek 判定）
+./.venv/Scripts/python.exe scripts/clean_bill.py --alipay 支付宝交易明细.csv --wechat 微信账单.xlsx --out cleaned
+./.venv/Scripts/python.exe scripts/clean_bill.py --wechat 微信账单.xlsx --period 2026-09   # 只要一个月
+./.venv/Scripts/python.exe scripts/clean_bill.py --wechat 微信账单.xlsx --classifier keyword  # 不调模型（离线）
+
+# 7) 本月实况 Agent（后馈的采集环节：核对这个月的情况）
 ./.venv/Scripts/python.exe scripts/month_repl.py --mock                        # 假模型走全流程（自带规范文档样例）
 ./.venv/Scripts/python.exe scripts/month_repl.py --mock --period 2026-10       # 换个期间：自动载入已有历史做环比
-./.venv/Scripts/python.exe scripts/month_repl.py --real --bill 本月实况.json --period 2026-09
+./.venv/Scripts/python.exe scripts/month_repl.py --real --bill cleaned/2026-09.json --period 2026-09
 ./.venv/Scripts/python.exe scripts/month_repl.py --real --bill 手工整理.csv   --period 2026-09  # CSV 兼容入口
 ./.venv/Scripts/python.exe scripts/month_repl.py --real --show-reasoning
 
-# 7) 方案生成 Agent（整合全部信息 → 可复算方案 + 用户确认 / 反馈重算）
+# 8) 方案生成 Agent（整合全部信息 → 可复算方案 + 用户确认 / 反馈重算）
 ./.venv/Scripts/python.exe scripts/plan_repl.py --mock                         # 假模型走全流程（自带样例输入）
 ./.venv/Scripts/python.exe scripts/plan_repl.py --real --period 2026-10
 ./.venv/Scripts/python.exe scripts/plan_repl.py --real --show-reasoning
@@ -100,6 +105,8 @@ agent/
 │   ├── tools/market_data.py       AKShare 取数层（逐指标降级 + 多窗口分位 + TTL 缓存）
 │   ├── tools/bills.py             账单解析：BillParser 协议 + 共享聚合 + CSV 宽表（兼容入口）
 │   ├── tools/dossier.py           **规范输入文档**（JSON：流水 / 结余去向 / 投资收益）+ 严格校验
+│   ├── tools/bill_cleaner.py      **账单清洗器**：支付宝 CSV / 微信 XLSX → 规范文档（按月切分 + 对账报告）
+│   ├── tools/bill_classify.py     类目分类后端：DeepSeek 结构化输出（模型只写类目，不碰金额）
 │   ├── tools/plan_tools.py        方案七步工具：纯函数委托 + LangChain @tool 包装（make_plan_tools）
 │   ├── prompts/interview.py       INTERVIEW_SYSTEM / FINALIZE_SYSTEM
 │   ├── prompts/finance.py         PLAN / REFLECT / ANALYZE 三处提示词 + 渲染函数
@@ -266,8 +273,7 @@ START → ingest（代码：解析账单）→ survey（代码：重算关注点
 ### 输入：规范格式（「最干净的格式」）
 
 **主入口是一份 JSON 文档**（`tools/dossier.py`），各家的账单导出由**转换器**统一转成它之后再进来，
-解析侧就只需面对一种形状。转换器尚未实现；在那之前，手工整理成这份 JSON 也能直接跑通全流程。
-`--bill` 指向的文件会**自动识别**：`{` 开头按规范文档，否则按 CSV 宽表（兼容入口）。
+解析侧就只需面对一种形状。`--bill` 指向的文件会**自动识别**：`{` 开头按规范文档，否则按 CSV 宽表（兼容入口）。
 
 ```json
 {
@@ -301,6 +307,65 @@ START → ingest（代码：解析账单）→ survey（代码：重算关注点
 
 **校验**：解析**永不抛异常**——读不懂的文档、认不出的方向、非正的金额，都如实进 `warnings`
 并**带上"第几条"**（便于转换器作者定位），能用的部分照常产出。
+
+### 转换器（账单清洗器）：支付宝 / 微信 → 规范文档
+
+`tools/bill_cleaner.py` + `scripts/clean_bill.py` 把**两家平台的原始导出**直接洗成规范文档：
+
+```bash
+./.venv/Scripts/python.exe scripts/clean_bill.py \
+    --alipay "支付宝交易明细.csv" \
+    --wechat "微信支付账单流水文件.xlsx" \
+    --out cleaned
+```
+
+- **来源与形状**：支付宝「交易明细」CSV（GBK，带前言与回单尾注）、微信「账单流水文件」XLSX
+  （前 17 行是元信息，第 18 行表头）；**就这两个**，银行 / 券商导出暂不支持。
+- **按月切分**：规范文档是单期间形状，所以按自然月各出一份 `cleaned/<YYYY-MM>.json`
+  （混月喂进去只会被统计其中一个月）；`--period 2026-09` 可以只要一个月。
+- **方向只认平台的「收/支」列**（`支出/收入/不计收支`；微信的中性交易是 `/`），金额一律取正数；
+  两家的**退款口径不一致**（微信记成收入、支付宝记为不计收支）。CLI 与导入库默认 `net`：
+  退款不算收入，可靠关联的退款冲减原消费月份；全额退款状态可直接归零原消费。无法唯一关联或超额退款需复核，
+  不猜原单。`raw_cashflow` 保留原始流水；`keep` 保留平台口径，`transfer` 为兼容排除选项。
+  底层 `clean()` 为兼容既有调用仍默认 `keep`，调用方可显式传 `refund_policy="net"`。
+- **类目由 DeepSeek 判定**（`tools/bill_classify.py` + `prompts/classify.py`）：只有商家 / 商品 /
+  平台类目这类**文字依据**进模型，出参只有「编号 → 类目」，金额、方向、日期一概不经过模型；
+  返回值一律过 `domain/month.normalize_category` 收口，判定不了就落「其他」。
+  关键词表（`TEXT_CATEGORY_KEYWORDS`）退居**兜底与参考**：模型不可用时按它分类，可用时把它的结论
+  当参考交给模型复核。`--classifier keyword` 可以完全离线跑。
+- **分类默认关闭思考模式**，温度为 0；相同来源、商家、商品、平台类目与交易类型的文字依据在一次清洗中复用判定，
+  日期和金额仍逐行保留。`--thinking` 仅供显式开启。不明用途的转账、红包、群收款、二维码付款落「其他」，
+  不直接当成人情往来；人情往来需明确礼金、随礼等用途。规则不使用单字关键词。
+- **重复导入与隔离**：CLI 默认使用 `.data/bill-imports.sqlite`；`--user` 指定用户，`--ledger` 指定库。
+  相同交易幂等导入，重叠文件去重，后到退款可修正前月净额，冲突上传整体回滚；重新导入保留人工分类。
+  多用户服务必须传真实用户标识。`--report-only` 不写导入库。
+- **月份覆盖**：从导出起止日期判断完整月份，保留覆盖区间、复核数量与核算口径；明确不完整的月份不进入历史月均基线。
+- **可复核与纠正**：各流水保留来源、源行号、交易编号和分类来源；`review.json` 收集未知用途及退款相关记录。
+  `--category-overrides corrections.json` 接收人工分类，例如 `{"wechat:交易编号": "居住"}`，
+  人工结果优先于模型。无交易编号时使用 `wechat:row:源行号`（支付宝同理）。
+- **上传字节流**：`clean(alipay=csv_bytes, wechat=xlsx_bytes)` 可直接接收文件内容，微信字节流同样读取平台汇总。
+  `--period` 在模型分类前筛选，避免为未选月份付费；未知类目显式写「其他」，避免下游重新猜测。
+- **自检**：报告会把明细累加与**回单自带汇总**逐档对账，并列出「模型补空 / 改判」的每一笔供人复核；
+  `--no-verify` 之外默认再用 `tools/dossier.parse_bill` **回读**一遍产出，确认下游真的接得住。
+
+> 已知差异：支付宝回单声称支出 123 笔 4207.31 元，而明细里支出行累加是 4465.91 元
+> （差 258.60 元）——回单自己在特别提示第 6 条声明了「明细直接累加可能与统计金额不一致」，
+> 清洗器如实报出这处不一致，不替它对账。此外明细里有一笔 0.00 元的支出（全额优惠券），
+> 这笔零金额流水现在保留用于笔数对账，金额合计不变；负数、无效日期、列数错位记录跳过并告警。
+
+真实文件验收入口（输出目录须为新目录；只打印汇总，不打印个人交易明细）：
+
+```powershell
+./.venv/Scripts/python.exe scripts/validate_bill_cleaner.py --real --alipay "支付宝交易明细.csv" --wechat "微信账单.xlsx" --output .data/bill-validation/new-run
+```
+
+验收独立读取原始列，检查方向、金额、交易编号不被模型修改，并核对每个月的下游统计；
+平台汇总与明细差异保留在报告中，分类的语义准确性仍需结合用途人工复核。
+
+完整后端连续验收可使用 `scripts/full_flow_smoke.py --real --output 新目录`。
+加 `--alipay CSV路径 --wechat XLSX路径` 时，会重新分类真实账单并另测八月、九月的月度确认留档；
+真实账单与构造用户使用隔离历史。该扩展会向 DeepSeek 发送清洗后的月度金额、分类和备注，
+不同于分类器只发送文字用途；运行前应确保用户已授权该范围。阶段耗时和结果写入 `report.json`。
 
 ### 数据来源 = 混合
 
@@ -423,7 +488,7 @@ START → ingest（代码：现金流）→ agent（模型：自主调工具）�
   `calculate_reserve` / `assess_risk` / `propose_allocation` / `find_sources` / `check_goal`），
   入参只有少量 enum/数值旋钮，**模型无法注入金额**；工具内核是 `domain/plan.py` 的纯函数。
 - **compose 永远由代码重算**：无论模型调不调工具，规范方案的金额都由代码按输入 + 策略旋钮算出；
-  模型只负责 `headline` / `narrative`（复述代码数字）与「追问还是出方案」的判断。
+  模型负责 `headline`、策略旋钮与「追问还是出方案」的判断；最终 `narrative` 与回复由代码按最终金额生成。
 - **validate 独立复核**（`validate_plan`）：按方案自身策略重算逐项对账，检查金额非负、预算不超收入、
   三类配置平衡、增长 ≤ 风险上限、预备金补足 + 可投资 = 可储蓄、风险档不高于三档最保守值；
   数据不足（无完整月份）直接判错 → 走 `fallback`（**代码可否决模型的收尾**）。
@@ -578,7 +643,7 @@ life_event:2026-09 → status = ended，ended_period = "2026-11"
 - `max_loss_pct=0`（完全不接受亏损）是合法值，不能用 0 表示"未回答"。
 - 无密钥 / 调用失败 / 解析失败时走规则降级，保证"没有 AI 也能用"。
 - 思考模式可用 `DEEPSEEK_THINKING=disabled` 应急关闭（会牺牲推理质量）。
-- 持久化目前是 `InMemorySaver`（重启即丢），后续替换为 SQLite / Postgres checkpointer。
+- 四类对话默认用 SQLite checkpointer，分别存于 `.data/checkpoints/`，可用 `MONEYROUTER_CHECKPOINT_DIR` 指定目录；设为 `:memory:` 可临时关闭落盘。重启后沿用相同 `thread_id` 即可恢复，预算、方案输入及复盘上下文同步持久化。
 - 检索侧目前**没有跨请求缓存**：每次调用都会真发检索请求。上多用户前建议按"主题 + 日期"加短 TTL 缓存。
 - 指标侧的缓存是**进程内**的，多进程部署时会各存一份；届时需要换成 Redis 或落库。
   落盘兜底缓存（`.cache/`）是**单机共享**的，多实例部署时要注意各实例的目录不要互相覆盖。
@@ -599,25 +664,27 @@ life_event:2026-09 → status = ended，ended_period = "2026-11"
 - **关注点不写死**：规则可增删（装饰器注册），阈值集中在 `config.MonthSettings`（`MONTH_*` 可覆盖）。
 - `over_budget` / `goal_off_track` 依赖"方案预算 / 画像目标"，Python 侧尚未落地 → 首版按**可选注入**处理，
   未注入则不触发；`history`（近月趋势）与 `goal` 同理，缺就留空、图表显示"暂无"，**不补 0**。
-- **输入的规范格式已定**（`tools/dossier.py`），但**转换器尚未实现**：微信 / 支付宝 / 银行 / 券商的
-  原始导出**还不能直接喂进来**（它们有前言、金额恒为正、方向在单独的「收/支」列，CSV 入口会读空）。
-  在转换器就位前，请按规范文档整理，或用一个结构相近的 CSV 宽表。
+- **输入的规范格式已定**（`tools/dossier.py`），**转换器已覆盖支付宝 / 微信两家**（`tools/bill_cleaner.py`）：
+  原始导出有前言、金额恒为正、方向在单独的「收/支」列，直接喂 CSV 入口会读空——现在先过清洗器即可。
+  银行 / 券商导出**暂不支持**，那类请按规范文档整理，或用结构相近的 CSV 宽表。
 - 规范文档目前覆盖 **本月流水 + 结余去向 + 已有投资收益**；历史月 / 预算 / 目标仍走**可选注入**
-  （转换器也不产出这两类数据，它们是「方案」与「画像」模块的产物）。**历史月现在可以不注入**——
+  （清洗器也不产出这两类数据，它们是「方案」与「画像」模块的产物）。**历史月现在可以不注入**——
   落档之后由 `history.py` 自动回喂。
 - 历史留档是 **JSON 文件库**（单机、按月一个文件，人可读、便于迁移）。多实例部署时要么共享同一
   目录、要么换成数据库实现——`MonthHistoryStore` 是协议，替换不动调用方。
 - 落档里存的是**落定时的完整快照（含派生字段）**，读取后直接当历史用；跨版本口径变更时应重跑或
   手工修档，代码不会在读取时静默重算。
-- 与画像 Agent 一致：**对话状态**仍是 `InMemorySaver`（重启丢对话，但**落定的月份不丢**）；无模型时走规则降级并**永不收尾**。
+- 与画像 Agent 一致：对话与核对状态默认 SQLite 持久化；落定月份另行留档。无模型时走规则降级并**永不收尾**。
 
 方案生成 Agent 的边界：
 
 - **工具循环默认关思考**（`PLAN_TOOLS_THINKING=false`）：这是为避开"思考模式 + tools 时 reasoning_content
   必须回传、而客户端不回传会 400"的硬约束；判段/反馈解析仍走默认思考模式（不带 tools）。
-- **模型不写任何金额**：`compose`/`validate` 由代码跑完七步，模型只写 `headline` / `narrative` 与
+- **模型不写任何金额**：`compose`/`validate` 由代码跑完七步，模型只写 `headline` 与
   「追问还是出方案」的判断；模型通过少量**策略旋钮**（可选上限比例 / 风险档 / 预备金月数）参与，
   一律被代码钳到合法区间（风险档只会更保守）。
+- 最终方案的金额说明与回复由 `render_plan_narrative` 按重算结果生成，避免模型复述工具旧值。
+  `wants_ratio_pct` 明确是应用经验前的基础上限，工具里的已生效比例不能再当基础值回填。
 - **经验包的产生器见「总结 Agent」**：`ExperiencePack` / `Lesson` / `apply_lessons` 与产生器都已就绪；
   `PlanInputs.experience` 不注入则不产生任何软调整。
 - 输入（画像 / 金融简报 / 账单快照 / 历史月份）**不进图状态**，由门面闭包注入；多用户部署时
@@ -627,7 +694,7 @@ life_event:2026-09 → status = ended，ended_period = "2026-11"
 - 必要/可选分类归属：必要 = 居住 / 餐饮 / 交通 / 医疗健康 / 学习成长；其余为可选。口径如需调整，
   改 `domain/plan.py` 的常量即可。
 - 场景演算的假设年化（2.0% / 3.5% / 6.0%）与 0.5% 成本是**算法常量**，不是收益预测。
-- 持久化仍为 `InMemorySaver`；无模型时走确定性降级并**仍可确认**。
+- 对话及方案输入默认 SQLite 持久化；无模型时走确定性降级，**仅复核通过的方案可确认**。数据不足或金额校验失败时提示补充资料。
 
 总结 Agent 的边界：
 
@@ -639,8 +706,43 @@ life_event:2026-09 → status = ended，ended_period = "2026-11"
   （`交通` / `餐饮` / `居住` 属必要类，不认）。要真正落地得改方案侧，本轮不动。
 - **画像事件的抽取依赖模型**：代码只负责排号、校验类型白名单、定日期、填依据；
   "本月是否真的发生了这件事"由模型从该月实况与归因里判断——与本月实况 Agent 同一套信任边界。
-- **已发现的方案侧问题（未修，不属本模块）**：`validate_plan(plan, inputs)` 内部是
-  `build_plan(inputs, plan.strategy)`，而 `plan.strategy` 里已应用过一次软调整 →
-  "带经验包 + 二次复核"会重复应用 `wants_down` 的缩放，表现为一条 `recompute_mismatch`。
-  已在 `tests/test_summary_feeds_plan.py` 里记录并只断言"没有硬约束类问题"。
-- 持久化：对话状态仍是 `InMemorySaver`，但**三份产物落盘**（`.data/` 下，可配置关闭）。
+- **经验复核已修复（2026-10-07）**：按方案内已经生效的策略独立重算，不再次叠加经验；
+  回归测试要求复核完全通过，并验证修改金额仍会被拒绝。
+- **月份与零值**：异月方案不参与本月偏差和经验计算；预算为 0 是已知值，仍计算偏差。
+- **实况到复盘的事实传递**：复盘模型同时收到已确认实况结论、额外事实与关注点归因，
+  避免职业或收入稳定性变化未落在消费关注点里时被遗漏。
+- 事件类型的全部白名单由 schema 描述传给模型；被拒绝的画像事件通过 `event_warnings` 返回。
+- 持久化：对话及复盘上下文默认 SQLite 持久化，**三份产物另行落盘**（`.data/` 下，可配置关闭）。
+
+## 五个 Agent 完整联动测试
+
+从画像开始，顺次运行金融简报、八月实况、九月方案（含反馈修改）、九月实况、复盘、十月方案。
+所有模块通过实际门面与 LangGraph 图运行；复盘保存后新建读取门面，用落盘的经验和画像事件生成下月方案。
+
+```powershell
+# 可重复的离线模型/数据测试（仍运行真实图与文件库）
+./.venv/Scripts/python.exe scripts/full_flow_smoke.py --output .data/smoke/offline-1
+# 真实模型、博查检索和金融数据；需要已有密钥，每次指定新目录
+./.venv/Scripts/python.exe scripts/full_flow_smoke.py --real --output .data/smoke/real-1
+# 全量回归
+New-Item -ItemType Directory -Path .pytest_tmp -Force | Out-Null
+./.venv/Scripts/python.exe -m pytest -q --basetemp=.pytest_tmp/regression
+```
+
+脚本每步保存 JSON 结果和 `report.json`，失败立即非零退出；限定问答轮数。
+测试模拟用户离职后收入不稳、可选支出超预算，要求下一期经验生效、预备金目标转为六个月、金额复核通过。
+输出目录必须不存在，且行情缓存、月份、经验、画像事件与复盘均隔离于该目录；不读取真实用户留档。
+这验证 Python Agent 链路，Go Web 对接仍需单独完成。
+
+结构化模型调用遇到 `LengthFinishReasonError` 时，在原有尝试次数内将输出预算加倍，
+默认从 4096 到 8192，再到最高 16384；普通空 JSON/网络错误不会提高预算。
+重试使用复制的模型客户端，不修改共享配置；仍失败则按原有规则降级。
+
+如果只修改后馈链路，可读取完整测试已经确认的上游产物继续跑真实模型：
+
+```powershell
+./.venv/Scripts/python.exe scripts/feedback_smoke.py --source .data/smoke/real-1 --output .data/smoke/feedback-1
+```
+
+此脚本校验上游确认状态，不模拟模型和账单；新生成的复盘、经验、画像事件、下月方案另存到新目录。
+同时保存复盘模型的结构化草稿，便于区分「模型未提取」和「代码拒绝了事件」。

@@ -162,6 +162,22 @@ def test_offline_degrades_to_rule_pack_and_still_confirms():
     assert summaries.list_periods() == [PERIOD]
 
 
+def test_reflect_receives_confirmed_articulation_and_profile_change_notes():
+    history = InMemoryMonthHistoryStore()
+    record = _record()
+    record.articulation = "用户本月从公司离职，转为自由职业。"
+    record.snapshot.notes = "本月仍收入10000元，之后收入不稳定。"
+    record.probes = []  # Profile changes need not be answers to spending probes.
+    history.save(record)
+    agent, _, _, _ = _agent([SummaryDraft()], history=history)
+    result = agent.summarize("change-context", period=PERIOD)
+    assert result.awaiting_confirmation
+    context = "\n".join(str(message.content) for message in agent.reflect_runner.calls[0])
+    assert record.articulation in context
+    assert record.snapshot.notes in context
+    assert record.snapshot.notes in agent.code.evidence()
+
+
 # --------------------------------------------------------------------------- #
 # 全流程
 # --------------------------------------------------------------------------- #
@@ -309,7 +325,7 @@ def test_event_ids_and_periods_are_assigned_by_code():
 
     assert [event.id for event in result.profile_delta.events] == [f"learning:{PERIOD}"]
     assert result.profile_delta.events[0].from_period == PERIOD
-    assert any("不在允许范围内" in item for item in result.write_warnings or []) or result.profile_delta.events
+    assert any("不在允许范围内" in item for item in result.event_warnings)
 
 
 def test_reasoning_is_captured_and_not_written_back():

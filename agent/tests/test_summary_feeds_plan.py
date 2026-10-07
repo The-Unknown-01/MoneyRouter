@@ -96,14 +96,7 @@ def test_each_kind_applies_once_and_only_once():
 
 
 def test_experience_soft_adjustments_do_not_break_hard_constraints():
-    """软调整只该改数字、不该破坏硬约束。
-
-    ⚠️ 已知（方案侧，2026-10-07 观察到）：`validate_plan(plan, inputs)` 内部是
-    `build_plan(inputs, plan.strategy)`，而 `plan.strategy` 里已经是**应用过一次**软调整的策略；
-    于是"带经验包 + 二次复核"会把 `wants_down` 的缩放再乘一遍，表现为一条 `recompute_mismatch`。
-    这发生在方案模块内部，本模块不改它——这里只断言**没有硬约束类问题**，
-    等方案侧修掉双重应用后 `report.ok` 自然为真。
-    """
+    """经验应用一次，独立复核必须完全通过。"""
     from moneyrouter_agent.domain.plan import validate_plan
 
     pack = merge_pack(None, [_wants_down(PERIOD, 1.0)], period=PERIOD)
@@ -111,4 +104,16 @@ def test_experience_soft_adjustments_do_not_break_hard_constraints():
 
     report = validate_plan(plan, _inputs(pack))
 
-    assert {issue.code for issue in report.issues} <= {"recompute_mismatch"}
+    assert report.ok, report.issues
+    assert plan.budget.wants_ratio_pct == 12.0
+    assert plan.budget.wants_cents == 120_000
+    assert validate_plan(plan, _inputs(pack)).ok
+
+
+def test_validation_still_rejects_changed_amount_with_experience():
+    from moneyrouter_agent.domain.plan import validate_plan
+
+    pack = merge_pack(None, [_wants_down(PERIOD, 1.0)], period=PERIOD)
+    plan = build_plan(_inputs(pack))
+    plan.budget.wants_cents += 1
+    assert not validate_plan(plan, _inputs(pack)).ok

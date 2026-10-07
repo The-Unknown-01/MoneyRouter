@@ -27,6 +27,7 @@ from langgraph.types import Command
 
 from .api.contract import PlanResult
 from .config import PlanSettings, Settings
+from .checkpoints import context as checkpoint_context
 from .domain.plan import CashflowSummary, Plan, PlanContext, PlanInputs, ValidationReport
 from .domain.plan_turn import PlanAdjustment, PlanTurnDecision
 from .graph.plan_build import build_plan_graph
@@ -131,6 +132,10 @@ class PlanAgent:
             self.context.set_inputs(inputs)
         config = self._config(thread_id)
         try:
+            saved = checkpoint_context(self.graph.checkpointer, thread_id)
+            if saved and inputs is None:
+                self.context.set_inputs(PlanInputs.model_validate(saved["inputs"]))
+            checkpoint_context(self.graph.checkpointer, thread_id, {"inputs": self.context.inputs.model_dump(mode="json")})
             paused = bool(self.graph.get_state(config).next)
             if paused:
                 payload = resume if resume is not None else {"action": "confirm"}
@@ -141,6 +146,7 @@ class PlanAgent:
                     "period": self.context.inputs.period,
                 }
                 self.graph.invoke(update, config)
+            checkpoint_context(self.graph.checkpointer, thread_id, {"inputs": self.context.inputs.model_dump(mode="json")})
         except Exception as exc:  # noqa: BLE001 - 不抛给调用方，转为可读状态
             result = self.snapshot(thread_id)
             return result.model_copy(

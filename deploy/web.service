@@ -1,0 +1,15 @@
+[Unit]
+Description=MoneyRouter Go Web
+After=network.target moneyrouter-agent.service
+Requires=moneyrouter-agent.service
+
+[Service]
+Type=simple
+User=finance
+WorkingDirectory=/opt/moneyrouter
+EnvironmentFile=/etc/moneyrouter.env
+ExecStart=/opt/moneyrouter/bin/finance-linux-amd64 -addr 127.0.0.1:8080 -data /var/lib/finance/go
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

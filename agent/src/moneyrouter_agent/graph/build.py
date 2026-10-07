@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.checkpoint.memory import InMemorySaver
+from ..checkpoints import make_checkpointer
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 
@@ -38,11 +38,9 @@ ALLOWED_MSGPACK_MODULES: list[tuple[str, ...]] = [
 ]
 
 
-def default_checkpointer() -> InMemorySaver:
-    """默认的内存检查点（允许我们的领域模型参与序列化）。"""
-    return InMemorySaver(
-        serde=JsonPlusSerializer(allowed_msgpack_modules=ALLOWED_MSGPACK_MODULES)
-    )
+def default_checkpointer() -> Any:
+    """默认持久化检查点（允许我们的领域模型参与序列化）。"""
+    return make_checkpointer('profile', ALLOWED_MSGPACK_MODULES)
 
 
 def build_interview_graph(
@@ -51,7 +49,7 @@ def build_interview_graph(
     finalize_runner: FinalizeRunner,
     checkpointer: Any | None = None,
 ) -> Any:
-    """构建并编译画像访谈图（默认内存检查点）。"""
+    """构建并编译画像访谈图（默认持久化检查点）。"""
     builder = StateGraph(InterviewState)
     builder.add_node(CONVERSE, make_converse(turn_runner))
     builder.add_node(FINALIZE, make_finalize(finalize_runner))

@@ -126,7 +126,7 @@ class EventDraft(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    event_type: str = Field(description="事件类型（代码白名单之一）；不定就填 other。")
+    event_type: str = Field(description="事件类型，代码白名单：" + " / ".join(EVENT_TYPES) + "；不定就填 other。")
     statement: str = Field(
         description="第三人称的事实描述：本月发生了什么变化、影响是什么。只写事实，不写过程、不引原话。"
     )
@@ -205,6 +205,9 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
     """算「计划 vs 实际」。``plan`` 可以是方案对象，也可以是 ``None``（未注入）。"""
     target = period or snapshot.period or ""
     diff = PlanActualDiff(period=target, plan_period=getattr(plan, "period", "") or "")
+    if plan is not None and diff.plan_period and target and diff.plan_period != target:
+        diff.notes.append(f"注入的方案属于 {diff.plan_period}，与本期的 {target} 不是同一个月，已排除该方案。")
+        plan = None
 
     actual_by_category = _category_totals(snapshot)
     necessary_actual = sum(
@@ -240,10 +243,10 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
         budget = plan.budget
         reserve = plan.reserve
         diff.layers = [
-            _layer("income", budget.income_cents or None, income_actual),
-            _layer("necessary", budget.necessary_cents or None, necessary_actual),
-            _layer("wants", budget.wants_cents or None, optional_actual),
-            _layer("savings", budget.savings_cents or None, snapshot.balance_cents),
+            _layer("income", budget.income_cents, income_actual),
+            _layer("necessary", budget.necessary_cents, necessary_actual),
+            _layer("wants", budget.wants_cents, optional_actual),
+            _layer("savings", budget.savings_cents, snapshot.balance_cents),
         ]
         growth_planned = next(
             (slice_.amount_cents for slice_ in plan.allocation.recommended if slice_.category == "增长配置"),

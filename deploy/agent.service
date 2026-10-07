@@ -1,0 +1,17 @@
+[Unit]
+Description=MoneyRouter Python Agent
+After=network.target
+
+[Service]
+Type=simple
+User=finance
+WorkingDirectory=/opt/moneyrouter
+EnvironmentFile=/etc/moneyrouter.env
+Environment=PYTHONPATH=/opt/moneyrouter/agent/src
+Environment=MONEYROUTER_SERVICE_DIR=/var/lib/finance/agent
+ExecStart=/opt/moneyrouter/agent/.venv/bin/python -m uvicorn moneyrouter_agent.api.server:app --host 127.0.0.1 --port 8090
+Restart=on-failure
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

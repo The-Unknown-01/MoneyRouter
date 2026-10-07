@@ -105,6 +105,10 @@ class _RecordingModel(BaseChatModel):
     reasoning: str | None = None
     seen_methods: list[str] = Field(default_factory=list)
     seen_payloads: list[list[Any]] = Field(default_factory=list)
+    max_tokens: int = 4096
+    seen_budgets: list[int] = Field(default_factory=list)
+    extra_body: dict[str, Any] | None = None
+    seen_thinking: list[Any] = Field(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
@@ -121,6 +125,8 @@ class _RecordingModel(BaseChatModel):
 
         def _run(messages: list[BaseMessage]) -> dict[str, Any]:
             self.seen_payloads.append(list(messages))
+            self.seen_budgets.append(self.max_tokens)
+            self.seen_thinking.append((self.extra_body or {}).get("thinking"))
             outcome = self.outcomes.pop(0) if self.outcomes else None
             if isinstance(outcome, Exception):
                 raise outcome
@@ -180,6 +186,27 @@ def test_runner_retries_on_call_exception():
     model = _RecordingModel(outcomes=[RuntimeError("网络抖动"), TurnDecision(reply="好了")])
     result = make_structured_runner(model, TurnDecision, max_attempts=2)([HumanMessage(content="hi")])
     assert result.attempts == 2
+
+
+def test_truncation_grows_budget_with_a_bounded_ceiling():
+    # Same exception type returned by the provider's JSON parser.
+    LengthFinishReasonError = type("LengthFinishReasonError", (Exception,), {})
+    model = _RecordingModel(outcomes=[LengthFinishReasonError(), LengthFinishReasonError(),
+                                     TurnDecision(reply="完整结果")],
+                            extra_body={"thinking": {"type": "enabled"}})
+    result = make_structured_runner(model, TurnDecision, max_attempts=3, initial_max_tokens=4096)([])
+    assert result.attempts == 3
+    assert model.seen_budgets == [4096, 8192, 16384]
+    assert model.max_tokens == 4096  # Do not mutate a shared client.
+    assert model.seen_thinking == [{"type": "enabled"}, {"type": "enabled"}, {"type": "disabled"}]
+    assert model.extra_body == {"thinking": {"type": "enabled"}}
+    assert "截断" in model.seen_payloads[1][-1].content
+
+
+def test_empty_json_retry_does_not_raise_token_budget():
+    model = _RecordingModel(outcomes=[None, TurnDecision(reply="完整结果")])
+    make_structured_runner(model, TurnDecision, max_attempts=2, initial_max_tokens=4096)([])
+    assert model.seen_budgets == [4096, 4096]
 
 
 def test_reasoning_never_injected_into_payload():

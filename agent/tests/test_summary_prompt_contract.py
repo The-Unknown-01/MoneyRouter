@@ -87,6 +87,8 @@ def test_prompt_states_the_whitelists_not_invents():
 def test_whitelists_are_not_empty():
     assert "life_event" in EVENT_TYPES and "learning" in EVENT_TYPES
     assert "category_cap" in EFFECT_KINDS
+    description = EventDraft.model_fields["event_type"].description
+    assert all(kind in description for kind in EVENT_TYPES)
 
 
 def test_degraded_copy_covers_every_lesson_kind_and_keeps_tone():
