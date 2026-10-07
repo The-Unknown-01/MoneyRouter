@@ -2,17 +2,18 @@
 <section class="flow-intro">
   <span class="eyebrow">STEP 03 · YOUR PLAN</span>
   <h1>{{if .Payload.Plan}}你的资金，按顺序安排{{else}}准备生成你的方案{{end}}</h1>
-  <p>{{if .Payload.Plan}}先覆盖生活和债务，再补预备金，最后安排可用于长期配置的部分。{{else}}画像和账本已准备好。确认后，Agent 会调用计算工具并展示每一步依据。{{end}}</p>
+  <p>{{if .Payload.Plan}}先覆盖生活和债务，再补预备金，最后安排可用于长期配置的部分。{{else}}三项摘要已确认。账本可以跳过；方案会标明所依据的开销数据。{{end}}</p>
   {{if .Payload.Plan}}<div class="flow-back-links"><a class="flow-back" href="/ledger">← 返回账本补录</a><a class="flow-back" href="/profile">重新评估画像</a></div>{{end}}
 </section>
 
 {{if .Payload.Plan}}
-  <div class="plan-lead"><div><span class="eyebrow light-text">第 {{.Payload.Plan.Version}} 版方案</span><h2>本月计划结余</h2><strong>{{money .Payload.Plan.SavingsCents}}</strong><p>{{.Payload.Plan.DataQuality}}</p></div><div class="plan-lead-risk"><span>风险档位</span><strong>{{.Payload.Plan.Risk}}风险</strong><small>增长类上限 {{.Payload.Plan.GrowthCapPct}}%</small></div></div>
+  <div class="plan-lead"><div><span class="eyebrow light-text">第 {{.Payload.Plan.Version}} 版方案</span><h2>{{if .Payload.Plan.Provisional}}临时建议{{else}}本月计划结余{{end}}</h2><strong>{{if .Payload.Plan.Provisional}}待补月支出{{else}}{{money .Payload.Plan.SavingsCents}}{{end}}</strong><p>{{.Payload.Plan.DataQuality}}</p></div><div class="plan-lead-risk"><span>风险档位</span><strong>{{.Payload.Plan.Risk}}风险</strong><small>增长类上限 {{.Payload.Plan.GrowthCapPct}}%</small></div></div>
   {{if .Payload.Plan.Warnings}}<div class="notice"><strong>需要留意</strong><ul>{{range .Payload.Plan.Warnings}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
 
+  {{if .Payload.Plan.Provisional}}<section class="flow-section ready-plan"><span class="ready-icon">◈</span><h2>补一个大致月支出，就能计算金额</h2><p>你仍可以跳过账本。回到对话告诉助手每月大概花多少，确认摘要后重新生成即可。</p><a class="button primary" href="/profile">补充 Outcome →</a></section>{{else}}
   <section class="flow-section plan-section">
     <div class="flow-section-head"><div><span class="eyebrow">01 · MONTHLY CASHFLOW</span><h2>月收入先去哪里</h2></div><span class="subtle">人民币 / 月</span></div>
-    <div class="money-path"><div><span>税后月收入</span><strong>{{money .Payload.Plan.IncomeCents}}</strong></div><div><span>必要生活开支</span><strong>− {{money .Payload.Plan.NeedsCents}}</strong></div><div><span>债务最低还款</span><strong>− {{money .Payload.Plan.DebtCents}}</strong></div><div><span>可选开支</span><strong>− {{money .Payload.Plan.WantsCents}}</strong></div><div class="money-path-result"><span>本月计划结余</span><strong>{{money .Payload.Plan.SavingsCents}}</strong></div></div>
+    <div class="money-path"><div><span>每月可用收入 / 生活费</span><strong>{{money .Payload.Plan.IncomeCents}}</strong></div><div><span>必要生活开支</span><strong>− {{money .Payload.Plan.NeedsCents}}</strong></div><div><span>债务最低还款</span><strong>− {{money .Payload.Plan.DebtCents}}</strong></div><div><span>可选开支</span><strong>− {{money .Payload.Plan.WantsCents}}</strong></div><div class="money-path-result"><span>本月计划结余</span><strong>{{money .Payload.Plan.SavingsCents}}</strong></div></div>
     <p class="flow-hint">50/30/20 用作预算参考；真实必要开支和债务优先。</p>
   </section>
 
@@ -28,14 +29,15 @@
     <div class="scenario-inline"><span>长期增长目标 &gt;3%</span><strong>示例情景 {{printf "%.2f" .Payload.Plan.ScenarioPct}}%</strong><small>按 2% / 3.5% / 6% 假设并扣除费用计算；非预测或收益承诺，实际可能亏损。</small></div>
   </section>
 
+  {{end}}
   <section class="flow-section agent-section"><div class="flow-section-head"><div><span class="eyebrow">AGENT EXPLANATION</span><h2>为什么这样安排</h2></div><span class="agent-dot">AI</span></div><p class="narrative">{{.Payload.Plan.Narrative}}</p></section>
 
-  <details class="flow-disclosure"><summary>调整可选开支并保存新版本</summary><p>调整后会重新计算预算、预备金和风险上限。</p><form method="post" action="/plan/adjust" class="stack-form"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="version" value="{{.Payload.Plan.Version}}"><label>可选开支上限（元）<input type="number" name="wants_cap" min="0" step="0.01" value="{{moneyInput .Payload.Plan.WantsCents}}" required></label><button class="button secondary">重新计算并保存 →</button></form></details>
+  {{if not .Payload.Plan.Provisional}}<details class="flow-disclosure"><summary>调整可选开支并保存新版本</summary><p>调整后会重新计算预算、预备金和风险上限。</p><form method="post" action="/plan/adjust" class="stack-form"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="version" value="{{.Payload.Plan.Version}}"><label>可选开支上限（元）<input type="number" name="wants_cap" min="0" step="0.01" value="{{moneyInput .Payload.Plan.WantsCents}}" required></label><button class="button secondary">重新计算并保存 →</button></form></details>{{end}}
   <details class="flow-disclosure"><summary>查看计算步骤与资料来源</summary><ol class="trace-list">{{range .Payload.Plan.Trace}}<li><span class="trace-dot"></span><div><strong>{{.Tool}}</strong><p>{{.Detail}}</p></div></li>{{end}}</ol>{{if .Payload.Plan.Sources}}<h3>背景资讯</h3><div class="source-list">{{range .Payload.Plan.Sources}}<a href="{{.URL}}" target="_blank" rel="noopener noreferrer"><span>{{.Title}}</span><small>{{.Domain}} · {{.Date}} ↗</small></a>{{end}}</div>{{end}}</details>
 
   <div class="flow-next"><div><strong>接下来由你选择</strong><small>可以直接执行方案，也可以进入复盘或向助手提问。</small></div><div class="flow-next-actions"><a class="button secondary" href="/review">查看月末复盘</a><a class="button secondary" href="/chat">向助手提问</a></div></div>
   <div class="quiet-action"><p class="flow-hint">修改过画像或账本？重新生成后，方案会采用最新数据。</p><form method="post" action="/plan/generate"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="link-button" type="submit">根据最新数据重新生成方案 →</button></form></div>
 {{else}}
-  <section class="flow-section ready-plan"><span class="ready-icon">◈</span><h2>已准备好开始计算</h2><p>确认收入 <strong>{{money .Payload.Profile.IncomeCents}}</strong>；账本包含最近 {{.Payload.Cashflow.Months}} 个月、{{.Payload.Cashflow.Count}} 笔记录。方案会先保护必要开支与预备金。</p><form method="post" action="/plan/generate"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button primary">确认生成并保存方案 →</button></form><a class="flow-back" href="/ledger">← 返回账本检查记录</a></section>
+  <section class="flow-section ready-plan"><span class="ready-icon">◈</span><h2>已准备好开始计算</h2><p>确认每月可用收入 <strong>{{money .Payload.Profile.IncomeCents}}</strong>；{{if eq .Payload.Cashflow.Source "conversation"}}将采用对话中的月支出估计。{{else if eq .Payload.Cashflow.Source "quick"}}将采用分类月开销。{{else if eq .Payload.Cashflow.Source "unknown"}}尚无月支出估计，先生成不含投资金额的临时建议。{{else}}将采用现有账单。{{end}}</p><form method="post" action="/plan/generate"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="button primary">确认生成并保存方案 →</button></form><a class="flow-back" href="/ledger">← 返回开销页面</a></section>
 {{end}}
 {{template "layout_end" .}}{{end}}

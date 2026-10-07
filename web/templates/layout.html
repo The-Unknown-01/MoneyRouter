@@ -23,7 +23,7 @@
     <nav class="flow-progress" aria-label="规划进度">
       <span class="{{if eq .Active "profile"}}current{{else}}done{{end}}"><b>01</b> 了解你</span>
       <i aria-hidden="true"></i>
-      <span class="{{if eq .Active "profile"}}upcoming{{else if eq .Active "ledger"}}current{{else}}done{{end}}"><b>02</b> 建立账本</span>
+      <span class="{{if eq .Active "profile"}}upcoming{{else if eq .Active "ledger"}}current{{else}}done{{end}}"><b>02</b> 可选开销</span>
       <i aria-hidden="true"></i>
       <span class="{{if or (eq .Active "plan") (eq .Active "review") (eq .Active "chat")}}current{{else}}upcoming{{end}}"><b>03</b> 你的方案</span>
     </nav>

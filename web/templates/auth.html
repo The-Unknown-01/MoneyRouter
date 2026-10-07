@@ -5,7 +5,7 @@
     <span class="eyebrow">PERSONAL FINANCE, ONE STEP AT A TIME</span>
     {{if eq .Payload "register"}}
       <h1>从了解你开始</h1>
-      <p>创建账号后，财务助手会先了解你的目标和风险承受能力，再带你建立账本、生成方案。</p>
+      <p>创建账号后，先和助手自然聊聊收入、开销与个人特点；分类开销可以填写，也可以跳过。</p>
       <form method="post" action="/register" class="stack-form">
         <label>用户名<input name="username" required minlength="3" maxlength="30" autocomplete="username" placeholder="3–30 位字母、数字或下划线"></label>
         <label>密码<input type="password" name="password" required minlength="8" maxlength="72" autocomplete="new-password" placeholder="至少 8 位"></label>
@@ -23,6 +23,6 @@
       <p class="auth-switch">还没有账号？<a href="/register">创建账号</a></p>
     {{end}}
   </div>
-  <p class="auth-footnote">了解你 <span>→</span> 建立账本 <span>→</span> 获得方案</p>
+  <p class="auth-footnote">了解你 <span>→</span> 可选开销 <span>→</span> 获得方案</p>
 </main>
 {{template "layout_end" .}}{{end}}
