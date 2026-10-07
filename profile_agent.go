@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -33,6 +34,15 @@ type profileFactsInput struct {
 	MaxLossPct    *int     `json:"max_loss_pct,omitempty" jsonschema_description:"Maximum acceptable short-term principal loss percentage, only if stated"`
 	Experience    *string  `json:"experience,omitempty" jsonschema_description:"Investment experience: none, some, experienced, only when clear"`
 	Goal          *string  `json:"goal,omitempty" jsonschema_description:"Financial goal stated by user"`
+}
+
+type monthlyExpenseFact struct {
+	Category   string  `json:"category" jsonschema_description:"One of 住房 餐饮 交通 医疗 教育 还款 购物 娱乐 其他"`
+	AmountYuan float64 `json:"amount_yuan" jsonschema_description:"Monthly spending in yuan explicitly stated by the user"`
+}
+
+type monthlyExpensesInput struct {
+	Items []monthlyExpenseFact `json:"items" jsonschema_description:"Only categories and monthly amounts explicitly stated or corrected by the user; partial lists are welcome"`
 }
 
 func applyProfileFacts(p *profile, in profileFactsInput) bool {
@@ -122,7 +132,25 @@ func (a *app) profileAgentReply(ctx context.Context, userID int64, p *profile, h
 					return "", err
 				}
 			}
-			return fmt.Sprintf("Current confirmed draft: income %.2f yuan/month, outcome known %t, outcome %.2f yuan/month, feature %q. Continue naturally and ask only for missing material facts.", float64(p.IncomeCents)/100, p.OutcomeKnown, float64(p.OutcomeCents)/100, p.Feature), nil
+			return fmt.Sprintf("Current draft: income %.2f yuan/month, outcome known %t, outcome %.2f yuan/month, feature %q. When sufficient, hand off to the expense review step. Never offer an allocation or plan here.", float64(p.IncomeCents)/100, p.OutcomeKnown, float64(p.OutcomeCents)/100, p.Feature), nil
+		})
+	if err != nil {
+		return "", err
+	}
+	recordExpenses, err := utils.InferTool("record_monthly_expenses", "Save only category-level monthly expenses explicitly stated by the user. Update mentioned categories without erasing other categories. The user may leave categories unknown.",
+		func(_ context.Context, in *monthlyExpensesInput) (string, error) {
+			if in == nil || len(in.Items) == 0 {
+				return "No category expenses supplied", nil
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if err := a.saveAgentExpenseEstimates(userID, in.Items); err != nil {
+				if errors.Is(err, errInvalidAgentExpense) {
+					return "rejected: " + err.Error() + "; use 住房 餐饮 交通 医疗 教育 还款 购物 娱乐 其他 and ask for clarification if needed", nil
+				}
+				return "", err
+			}
+			return "Recorded the stated monthly category expenses. These will be prefilled on the optional expense review page. Do not calculate or offer a plan.", nil
 		})
 	if err != nil {
 		return "", err
@@ -131,10 +159,10 @@ func (a *app) profileAgentReply(ctx context.Context, userID int64, p *profile, h
 	if p.OutcomeKnown {
 		outcome = fmt.Sprintf("%.2f yuan/month", float64(p.OutcomeCents)/100)
 	}
-	instruction := fmt.Sprintf(`你是中文财务画像对话 Agent。自由地与用户多轮交谈，目标只围绕 Income（月度可用收入或生活费）、Outcome（月度总支出，包含还款，可粗估）、Feature（个人特点、责任、目标与风险意愿）。不按固定题序询问。用户一次说全时直接总结；缺少关键内容时只问当前最有用的一个问题。允许学生、自由职业者等群体。用户明确说出的新增或修正事实必须先调用 record_profile_facts；不要猜测金额、风险意愿或投资期限。若 Outcome 缺失，温和地问一个粗略月支出；用户不知道时可告知将先给不含投资金额的临时建议。不要宣称收益保证。当前草稿：Income %.2f 元/月，来源 %q；Outcome %s；Feature %q；收入稳定 %t；月债务 %.2f 元；可用预备金 %.2f 元；可承受亏损 %d%%；目标 %q。回复简短自然，不要求填写旧版长表单。`, float64(p.IncomeCents)/100, p.IncomeSource, outcome, p.Feature, p.StableIncome, float64(p.DebtCents)/100, float64(p.ReserveCents)/100, p.MaxLossPct, p.Goal)
+	instruction := fmt.Sprintf(`你是中文财务画像对话 Agent，只负责收集与核对事实，绝不生成方案、预算比例、资金分配、投资建议，也不要询问用户是否要你出方案。自由地与用户多轮交谈，目标围绕 Income（月度可用收入或生活费）、Outcome（月度总支出，包含还款，可粗估）、Feature（个人特点、家庭支持与责任、目标和风险意愿）。不按固定题序询问。用户明确说出的新增或修正事实必须先调用 record_profile_facts；用户明确说出的餐饮、住房、交通、医疗、教育、还款、购物、娱乐或其他分类月开销必须调用 record_monthly_expenses，可一次记录部分类别，不猜测未说出的金额。核心三项大致齐备后，可自然询问一次分类开销，例如“餐饮、交通等每月大概各花多少”，用户可以不回答；随后引导用户核对摘要并进入下一步的可选开销页面，由后续方案 Agent 决策。若 Outcome 缺失，只问粗略月支出；不知道时可以继续进入下一步。不要承诺收益。当前草稿：Income %.2f 元/月，来源 %q；Outcome %s；Feature %q；收入稳定 %t；月债务 %.2f 元；现有流动资金 %.2f 元；可承受亏损 %d%%；目标 %q。回复简短自然。`, float64(p.IncomeCents)/100, p.IncomeSource, outcome, p.Feature, p.StableIncome, float64(p.DebtCents)/100, float64(p.ReserveCents)/100, p.MaxLossPct, p.Goal)
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name: "profile_interviewer", Instruction: instruction, Model: model, MaxIterations: 3,
-		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{record}}},
+		Name: "profile_interviewer", Instruction: instruction, Model: model, MaxIterations: 4,
+		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{record, recordExpenses}}},
 	})
 	if err != nil {
 		return "", err
@@ -173,7 +201,26 @@ func (a *app) profileAgentReply(ctx context.Context, userID int64, p *profile, h
 	if reply == "" {
 		return "", fmt.Errorf("empty agent response")
 	}
-	return reply, nil
+	var categoryCount int
+	if err := a.db.QueryRow(`SELECT count(*) FROM expense_estimates WHERE user_id=?`, userID).Scan(&categoryCount); err != nil {
+		return "", err
+	}
+	return boundProfileReply(reply, *p, categoryCount > 0), nil
+}
+
+func boundProfileReply(reply string, p profile, hasCategories bool) string {
+	if p.IncomeCents > 0 && p.OutcomeKnown && strings.TrimSpace(p.Feature) != "" {
+		if hasCategories {
+			return "你的收入、月支出、个人特点和已说明的分类开销都记录好了。请核对下方摘要，继续到可选开销页面；那里可以修改分类金额或直接进入分析。"
+		}
+		return "你的收入、月支出和个人特点已经整理好。你还可以告诉我餐饮、交通等每月分别花多少；也可以核对下方摘要，继续到可选开销页面。"
+	}
+	for _, phrase := range []string{"怎么分", "分配", "配置", "买入", "投资建议", "具体方案", "给你出", "预备金"} {
+		if strings.Contains(reply, phrase) {
+			return "先把你的收入、支出和个人特点整理清楚。你可以继续补充，或核对下方摘要。具体安排会在后面的分析阶段生成。"
+		}
+	}
+	return reply
 }
 
 func (a *app) askProfile(w http.ResponseWriter, r *http.Request) {

@@ -104,7 +104,7 @@ func (a *app) saveProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := r.PostForm["feature"]; ok {
 		p.Feature = strings.TrimSpace(r.FormValue("feature"))
-		if len(p.Feature) <= 500 {
+		if p.Goal == "" && len(p.Feature) <= 500 {
 			p.Goal = p.Feature
 		}
 	}

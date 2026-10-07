@@ -25,6 +25,31 @@ func testApp(t *testing.T) *app {
 	return &app{db: db, tpl: newTemplates(), deepseek: &deepseekClient{}, news: &newsClient{expires: time.Now().Add(time.Hour)}, sem: make(chan struct{}, 2), previews: newPreviewStore(), authRate: newRateLimiter()}
 }
 
+func installTestPlanAgent(t *testing.T, a *app, finalReply string) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		messages, _ := body["messages"].([]any)
+		for _, raw := range messages {
+			m, _ := raw.(map[string]any)
+			if m["role"] == "tool" {
+				_ = json.NewEncoder(w).Encode(map[string]any{"id": "test_plan_final", "choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": finalReply}, "finish_reason": "stop"}}})
+				return
+			}
+		}
+		proposal := `{"reserve_target_yuan":0,"reserve_kind":"none","reserve_reason":"已结合当前流动性和个人责任","reserve_pct":0,"extra_debt_pct":0,"goal_savings_pct":0,"conservative_pct":100,"steady_pct":0,"growth_pct":0,"risk_label":"低","risk_reason":"当前优先保持资金可用","decision_reason":"以可用资金承接近期生活目标"}`
+		call := map[string]any{"id": "call_submit", "type": "function", "function": map[string]any{"name": "submit_plan", "arguments": proposal}}
+		message := map[string]any{"role": "assistant", "content": "", "tool_calls": []any{call}}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "test_plan_call", "choices": []any{map[string]any{"message": message, "finish_reason": "tool_calls"}}})
+	}))
+	t.Cleanup(server.Close)
+	a.deepseek = &deepseekClient{key: "test", base: server.URL, http: server.Client(), sem: make(chan struct{}, 2)}
+}
+
 func request(t *testing.T, a *app, method, path string, values url.Values, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	body := ""
@@ -130,6 +155,24 @@ func TestPlanNeedsConfirmedProfileAndRejectsWrongCSRF(t *testing.T) {
 	}
 }
 
+func TestUnavailablePlanAgentDoesNotSaveFixedAllocation(t *testing.T) {
+	a := testApp(t)
+	cookie, csrf, id := registerTestUser(t, a, "no_agent_plan")
+	w := request(t, a, "POST", "/profile", url.Values{"csrf": {csrf}, "income": {"2500"}, "outcome": {"2000"}, "feature": {"大学生，家庭承担住宿"}, "confirm": {"yes"}}, cookie)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("profile confirmation failed: %d", w.Code)
+	}
+	request(t, a, "POST", "/ledger/skip", url.Values{"csrf": {csrf}}, cookie)
+	w = request(t, a, "POST", "/plan/generate", url.Values{"csrf": {csrf}}, cookie)
+	if w.Code != http.StatusSeeOther || !strings.Contains(w.Header().Get("Location"), "error=") {
+		t.Fatalf("agent outage was not reported: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	latest, err := a.latestPlan(id)
+	if err != nil || latest != nil {
+		t.Fatalf("fixed fallback allocation was saved: %+v %v", latest, err)
+	}
+}
+
 func TestCSVPreviewRequiresOwnerAndConfirmation(t *testing.T) {
 	a := testApp(t)
 	ac, at, aid := registerTestUser(t, a, "csv_owner")
@@ -182,6 +225,7 @@ func TestCSVPreviewRequiresOwnerAndConfirmation(t *testing.T) {
 
 func TestTwoAccountsCompleteFlowAndBackup(t *testing.T) {
 	a := testApp(t)
+	installTestPlanAgent(t, a, "已提交方案。")
 	ac, at, aid := registerTestUser(t, a, "flow_account_a")
 	bc, bt, _ := registerTestUser(t, a, "flow_account_b")
 	for _, account := range []struct {
@@ -243,12 +287,30 @@ func TestTwoAccountsCompleteFlowAndBackup(t *testing.T) {
 func TestPlanRejectsStaleVersion(t *testing.T) {
 	a := testApp(t)
 	_, _, id := registerTestUser(t, a, "version_owner")
-	p := computePlan(profile{IncomeCents: 100_000, StableIncome: true}, cashflow{Months: 1, Count: 1}, nil)
+	p := preparePlan(profile{IncomeCents: 100_000, StableIncome: true}, cashflow{Source: "unknown"}, nil)
 	if err := a.savePlan(id, 0, &p); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.savePlan(id, 0, &p); err != errPlanVersionConflict {
 		t.Fatalf("stale version accepted: %v", err)
+	}
+}
+
+func TestLegacyFixedPlanRequiresRegeneration(t *testing.T) {
+	a := testApp(t)
+	cookie, csrf, id := registerTestUser(t, a, "legacy_plan")
+	request(t, a, "POST", "/profile", url.Values{"csrf": {csrf}, "income": {"2500"}, "outcome": {"2000"}, "feature": {"大学生"}, "confirm": {"yes"}}, cookie)
+	request(t, a, "POST", "/ledger/skip", url.Values{"csrf": {csrf}}, cookie)
+	old := plan{Algorithm: "budget-workflow-v1", IncomeCents: 250_000, SavingsCents: 50_000, GrowthCapPct: 20}
+	if err := a.savePlan(id, 0, &old); err != nil {
+		t.Fatal(err)
+	}
+	page := request(t, a, "GET", "/plan", nil, cookie)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "旧版方案需要重新生成") || strings.Contains(page.Body.String(), "增长类上限") {
+		t.Fatalf("legacy plan remained active: %d %s", page.Code, page.Body.String())
+	}
+	if review := request(t, a, "GET", "/review", nil, cookie); review.Code != http.StatusSeeOther || review.Header().Get("Location") != "/plan" {
+		t.Fatalf("legacy optional page was accessible: %d %s", review.Code, review.Header().Get("Location"))
 	}
 }
 
@@ -298,6 +360,59 @@ func TestProfileAgentExtractsDraftForCurrentAccount(t *testing.T) {
 	}
 }
 
+func TestProfileAgentPrefillsPartialExpenseCategories(t *testing.T) {
+	a := testApp(t)
+	cookie, csrf, id := registerTestUser(t, a, "category_owner")
+	_, _, otherID := registerTestUser(t, a, "category_other")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		messages, _ := body["messages"].([]any)
+		for _, raw := range messages {
+			m, _ := raw.(map[string]any)
+			if m["role"] == "tool" {
+				_ = json.NewEncoder(w).Encode(map[string]any{"id": "profile_category_final", "choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "我可以给你出每月怎么分的具体方案。"}, "finish_reason": "stop"}}})
+				return
+			}
+		}
+		calls := []any{
+			map[string]any{"id": "facts", "type": "function", "function": map[string]any{"name": "record_profile_facts", "arguments": `{"income_yuan":2500,"outcome_yuan":2000,"feature":"大学生，家里承担房租，想攒旅行费","income_source":"家庭生活费"}`}},
+			map[string]any{"id": "categories", "type": "function", "function": map[string]any{"name": "record_monthly_expenses", "arguments": `{"items":[{"category":"餐饮","amount_yuan":900},{"category":"娱乐","amount_yuan":100}]}`}},
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "profile_category_calls", "choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "tool_calls": calls}, "finish_reason": "tool_calls"}}})
+	}))
+	defer server.Close()
+	a.deepseek = &deepseekClient{key: "test", base: server.URL, http: server.Client(), sem: make(chan struct{}, 2)}
+	w := request(t, a, "POST", "/profile/ask", url.Values{"csrf": {csrf}, "message": {"我是大学生，每月生活费2500，花2000，餐饮900、娱乐100，家里承担房租"}}, cookie)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("profile answer: %d %s", w.Code, w.Body.String())
+	}
+	messages, _ := a.listMessages(id, "profile", 5)
+	if len(messages) < 2 || strings.Contains(messages[len(messages)-1].Content, "怎么分") {
+		t.Fatalf("profile agent crossed plan boundary: %+v", messages)
+	}
+	var count, otherCount int
+	_ = a.db.QueryRow(`SELECT count(*) FROM expense_estimates WHERE user_id=?`, id).Scan(&count)
+	_ = a.db.QueryRow(`SELECT count(*) FROM expense_estimates WHERE user_id=?`, otherID).Scan(&otherCount)
+	if count != 2 || otherCount != 0 {
+		t.Fatalf("category isolation failed: owner=%d other=%d", count, otherCount)
+	}
+	confirm := request(t, a, "POST", "/profile", url.Values{"csrf": {csrf}, "income": {"2500"}, "outcome": {"2000"}, "feature": {"大学生，家里承担房租，想攒旅行费"}, "confirm": {"yes"}}, cookie)
+	if confirm.Code != http.StatusSeeOther {
+		t.Fatalf("confirm: %d", confirm.Code)
+	}
+	page := request(t, a, "GET", "/ledger", nil, cookie).Body.String()
+	if !strings.Contains(page, `value="900.00"`) || !strings.Contains(page, "未分类月开销") {
+		t.Fatal("conversation categories were not prefilled or reconciled")
+	}
+	request(t, a, "POST", "/ledger/skip", url.Values{"csrf": {csrf}}, cookie)
+	p, _ := a.getProfile(id)
+	cash, err := a.effectiveCashflow(id, p)
+	if err != nil || cash.Source != "conversation_categories" || cash.NeedsCents != 190_000 || cash.WantsCents != 10_000 {
+		t.Fatalf("skipped ledger discarded partial categories: %+v %v", cash, err)
+	}
+}
+
 func TestConcurrentAccountsKeepLedgersSeparate(t *testing.T) {
 	a := testApp(t)
 	ac, at, aid := registerTestUser(t, a, "parallel_a")
@@ -339,6 +454,7 @@ func TestConcurrentAccountsKeepLedgersSeparate(t *testing.T) {
 
 func TestOptionalLedgerSupportsStudentAndUnknownOutcome(t *testing.T) {
 	a := testApp(t)
+	installTestPlanAgent(t, a, "已提交方案。")
 	studentCookie, studentCSRF, studentID := registerTestUser(t, a, "student_flow")
 	unknownCookie, unknownCSRF, unknownID := registerTestUser(t, a, "unknown_outcome")
 	for _, tc := range []struct {
@@ -387,7 +503,7 @@ func TestQuickExpenseCategoriesOverrideConversationEstimate(t *testing.T) {
 	}
 	p, _ := a.getProfile(id)
 	c, err := a.effectiveCashflow(id, p)
-	if err != nil || c.Source != "quick" || c.NeedsCents != 400000 || c.WantsCents != 50000 {
+	if err != nil || c.Source != "quick" || c.NeedsCents != 450000 || c.WantsCents != 50000 {
 		t.Fatalf("cashflow: %+v %v", c, err)
 	}
 	if page := request(t, a, "GET", "/ledger", nil, cookie).Body.String(); !strings.Contains(page, "导入 CSV") || !strings.Contains(page, "分类月开销") {
@@ -410,25 +526,7 @@ func TestPlanNarrativeNeverUsesUnverifiedModelNumbers(t *testing.T) {
 	cookie, csrf, id := registerTestUser(t, a, "narrative_guard")
 	request(t, a, "POST", "/profile", url.Values{"csrf": {csrf}, "income": {"2500"}, "outcome": {"2000"}, "feature": {"大学生"}, "confirm": {"yes"}}, cookie)
 	request(t, a, "POST", "/ledger/skip", url.Values{"csrf": {csrf}}, cookie)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var requestBody map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&requestBody)
-		messages, _ := requestBody["messages"].([]any)
-		for _, raw := range messages {
-			m, _ := raw.(map[string]any)
-			if m["role"] == "tool" {
-				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "本月只结余 ¥50.00，预备金目标 ¥1200.00。"}}}})
-				return
-			}
-		}
-		calls := []any{}
-		for i, name := range []string{"summarize_cashflow", "allocate_budget", "calculate_reserve", "assess_risk", "propose_allocation", "check_goal"} {
-			calls = append(calls, map[string]any{"id": fmt.Sprintf("call_%d", i), "type": "function", "function": map[string]any{"name": name, "arguments": "{}"}})
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "tool_calls": calls}}}})
-	}))
-	defer server.Close()
-	a.deepseek = &deepseekClient{key: "test", base: server.URL, http: server.Client(), sem: make(chan struct{}, 2)}
+	installTestPlanAgent(t, a, "本月只结余 ¥50.00，预备金目标 ¥1200.00。")
 	w := request(t, a, "POST", "/plan/generate", url.Values{"csrf": {csrf}}, cookie)
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("generate: %d %s", w.Code, w.Body.String())

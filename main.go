@@ -60,7 +60,7 @@ func main() {
 	}
 	a := &app{db: db, deepseek: newDeepseekClient(), news: newNewsClient(), sem: make(chan struct{}, 2), previews: newPreviewStore(), authRate: newRateLimiter()}
 	a.tpl = newTemplates()
-	server := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 65 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	server := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 80 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	log.Printf("finance listening on %s", *addr)
 	log.Fatal(server.ListenAndServe())
 }

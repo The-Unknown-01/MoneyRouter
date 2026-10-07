@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -141,6 +142,9 @@ type ledgerData struct {
 	Status            string
 	ProfileOutcome    int64
 	OutcomeKnown      bool
+	EstimateTotal     int64
+	Unclassified      int64
+	EstimateExcess    int64
 	Month             string
 	Category          string
 	TransactionCount  int
@@ -185,6 +189,7 @@ func (a *app) ledger(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		d.Estimates[category] = amount
+		d.EstimateTotal += amount
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -192,6 +197,10 @@ func (a *app) ledger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows.Close()
+	if d.OutcomeKnown {
+		d.Unclassified = max64(0, d.ProfileOutcome-d.EstimateTotal)
+		d.EstimateExcess = max64(0, d.EstimateTotal-d.ProfileOutcome)
+	}
 	if err := a.db.QueryRow(`SELECT count(*) FROM transactions WHERE user_id=?`, currentUser(r).ID).Scan(&d.TransactionCount); err != nil {
 		http.Error(w, "账本读取失败", 500)
 		return
@@ -200,6 +209,77 @@ func (a *app) ledger(w http.ResponseWriter, r *http.Request) {
 }
 
 var expenseCategories = []string{"住房", "餐饮", "交通", "医疗", "教育", "还款", "购物", "娱乐", "其他"}
+var errInvalidAgentExpense = errors.New("分类开销输入无效")
+
+func validExpenseCategory(category string) bool {
+	for _, allowed := range expenseCategories {
+		if category == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *app) saveAgentExpenseEstimates(userID int64, items []monthlyExpenseFact) error {
+	if len(items) == 0 || len(items) > len(expenseCategories) {
+		return fmt.Errorf("%w：分类数量无效", errInvalidAgentExpense)
+	}
+	amounts := make(map[string]int64, len(items))
+	for _, item := range items {
+		if !validExpenseCategory(item.Category) || math.IsNaN(item.AmountYuan) || math.IsInf(item.AmountYuan, 0) || item.AmountYuan < 0 || item.AmountYuan > 1_000_000_000 {
+			return fmt.Errorf("%w：类别 %q 或金额无效", errInvalidAgentExpense, item.Category)
+		}
+		amounts[item.Category] = int64(math.Round(item.AmountYuan * 100))
+	}
+	tx, err := a.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for category, cents := range amounts {
+		if _, err := tx.Exec(`INSERT INTO expense_estimates(user_id,category,amount_cents) VALUES(?,?,?) ON CONFLICT(user_id,category) DO UPDATE SET amount_cents=excluded.amount_cents`, userID, category, cents); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (a *app) categoryEstimateCashflow(userID int64, p profile) (cashflow, error) {
+	rows, err := a.db.Query(`SELECT category,amount_cents FROM expense_estimates WHERE user_id=?`, userID)
+	if err != nil {
+		return cashflow{}, err
+	}
+	defer rows.Close()
+	c := cashflow{Months: 1}
+	for rows.Next() {
+		var category string
+		var amount int64
+		if err := rows.Scan(&category, &amount); err != nil {
+			return cashflow{}, err
+		}
+		c.Count++
+		switch {
+		case category == "还款":
+			c.DebtCents += amount
+		case essentialCategory(category):
+			c.NeedsCents += amount
+		default:
+			c.WantsCents += amount
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return cashflow{}, err
+	}
+	if c.Count == 0 {
+		return c, nil
+	}
+	known := c.NeedsCents + c.WantsCents + c.DebtCents
+	missingDebt := max64(0, p.DebtCents-c.DebtCents)
+	remaining := max64(0, p.OutcomeCents-known)
+	c.DebtCents += missingDebt
+	c.NeedsCents += max64(0, remaining-missingDebt)
+	return c, nil
+}
 
 func (a *app) ledgerStatus(userID int64) (string, error) {
 	var status string
@@ -271,7 +351,7 @@ func (a *app) skipLedger(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "流程保存失败", 500)
 		return
 	}
-	redirect(w, r, "/plan", "已跳过账本，方案将使用对话中的月支出估计")
+	redirect(w, r, "/plan", "已进入分析，将采用对话中的月支出与已记录分类")
 }
 
 func (a *app) effectiveCashflow(userID int64, p profile) (cashflow, error) {
@@ -279,30 +359,19 @@ func (a *app) effectiveCashflow(userID int64, p profile) (cashflow, error) {
 	if err != nil {
 		return cashflow{}, err
 	}
-	if status == "quick" {
-		rows, err := a.db.Query(`SELECT category,amount_cents FROM expense_estimates WHERE user_id=?`, userID)
+	if status == "quick" || status == "skipped" {
+		c, err := a.categoryEstimateCashflow(userID, p)
 		if err != nil {
 			return cashflow{}, err
 		}
-		defer rows.Close()
-		c := cashflow{Source: "quick", Months: 1}
-		for rows.Next() {
-			var category string
-			var amount int64
-			if err := rows.Scan(&category, &amount); err != nil {
-				return cashflow{}, err
+		if c.Count > 0 {
+			if status == "quick" {
+				c.Source = "quick"
+			} else {
+				c.Source = "conversation_categories"
 			}
-			c.Count++
-			switch {
-			case category == "还款":
-				c.DebtCents += amount
-			case essentialCategory(category):
-				c.NeedsCents += amount
-			default:
-				c.WantsCents += amount
-			}
+			return c, nil
 		}
-		return c, rows.Err()
 	}
 	if status != "skipped" {
 		c, err := a.summarizeCashflow(userID)

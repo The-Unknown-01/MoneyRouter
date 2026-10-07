@@ -59,7 +59,7 @@ func (a *app) requireStage(stage string, next http.HandlerFunc) http.HandlerFunc
 				http.Error(w, "无法读取当前方案", http.StatusInternalServerError)
 				return
 			}
-			if plan == nil {
+			if plan == nil || plan.Algorithm != algorithmVersion {
 				http.Redirect(w, r, "/plan", http.StatusSeeOther)
 				return
 			}

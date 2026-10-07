@@ -5,60 +5,85 @@ import (
 	"testing"
 )
 
-func TestPlanMatchesApprovedDefaults(t *testing.T) {
-	p := profile{IncomeCents: 1_200_000, StableIncome: true, FamilyLoad: false, DebtCents: 30_000, ReserveCents: 1_500_000, HorizonMonths: 60, MaxLossPct: 10, Experience: "some"}
-	c := cashflow{Months: 2, Count: 16, IncomeCents: 1_200_000, NeedsCents: 560_000, WantsCents: 120_000, DebtCents: 30_000}
-	got := computePlan(p, c, nil)
-	if got.ReserveMonths != 3 || got.ReserveTarget != 1_680_000 || got.ReserveGap != 180_000 {
-		t.Fatalf("reserve mismatch: %+v", got)
+func testProposal() planProposal {
+	return planProposal{
+		ReserveKind: "none", ReserveReason: "家庭已承担主要意外开支",
+		RiskLabel: "低", RiskReason: "当前以资金可用性为主",
+		DecisionReason: "优先完成近期目标并保留随时可用的资金",
 	}
-	if got.SavingsCents != 490_000 || got.InvestableCents != 310_000 {
-		t.Fatalf("cash balance mismatch: %+v", got)
+}
+
+func TestStudentCanChooseNoAutomaticEmergencyReserve(t *testing.T) {
+	p := profile{IncomeCents: 250_000, Feature: "大学生，主要生活费由家里承担", OutcomeKnown: true, OutcomeCents: 200_000, HorizonMonths: 36}
+	c := cashflow{Source: "conversation_categories", NeedsCents: 150_000, WantsCents: 50_000}
+	base := preparePlan(p, c, nil)
+	if base.SavingsCents != 50_000 || base.ReserveTarget != 0 {
+		t.Fatalf("base should contain facts, not a fixed reserve: %+v", base)
 	}
-	if got.Risk != "中" || got.GrowthCapPct != 20 || got.Growth != 62_000 {
-		t.Fatalf("risk allocation mismatch: %+v", got)
+	proposal := testProposal()
+	proposal.GoalSavingsPct = 60
+	proposal.ConservativePct = 40
+	got, err := applyPlanProposal(base, p, proposal)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := validatePlan(got); err != nil {
+	if got.ReserveTarget != 0 || got.ReserveMonthly != 0 || got.GoalSavings != 30_000 || got.Conservative != 20_000 {
+		t.Fatalf("student allocation mismatch: %+v", got)
+	}
+}
+
+func TestAgentMayChooseGrowthBeyondFormerFixedCap(t *testing.T) {
+	p := profile{IncomeCents: 1_200_000, StableIncome: true, DebtCents: 30_000, HorizonMonths: 60, MaxLossPct: 15}
+	c := cashflow{Source: "ledger", Months: 2, NeedsCents: 560_000, WantsCents: 120_000, DebtCents: 30_000}
+	base := preparePlan(p, c, nil)
+	proposal := testProposal()
+	proposal.ConservativePct = 70
+	proposal.GrowthPct = 30
+	proposal.RiskLabel = "中"
+	got, err := applyPlanProposal(base, p, proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SavingsCents != 490_000 || got.Growth != 147_000 || got.StressLossPct != 10.5 {
+		t.Fatalf("dynamic allocation mismatch: %+v", got)
+	}
+	if err := validateAgentPlan(got); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestUnstableIncomeUsesSixMonthsAndNoGrowthWhenReserveMissing(t *testing.T) {
-	p := profile{IncomeCents: 500_000, StableIncome: false, FamilyLoad: true, HorizonMonths: 120, MaxLossPct: 30, Experience: "experienced"}
-	c := cashflow{Months: 1, Count: 8, NeedsCents: 300_000, WantsCents: 100_000}
-	got := computePlan(p, c, nil)
-	if got.ReserveMonths != 6 || got.ReserveTarget != 1_800_000 {
-		t.Fatalf("wrong reserve: %+v", got)
+func TestProposalRejectsLossBeyondStatedTolerance(t *testing.T) {
+	p := profile{IncomeCents: 1_000_000, HorizonMonths: 60, MaxLossPct: 5}
+	base := preparePlan(p, cashflow{Source: "ledger", NeedsCents: 400_000, WantsCents: 100_000}, nil)
+	proposal := testProposal()
+	proposal.ConservativePct = 70
+	proposal.GrowthPct = 30
+	if _, err := applyPlanProposal(base, p, proposal); err == nil || !strings.Contains(err.Error(), "超过用户") {
+		t.Fatalf("loss budget was ignored: %v", err)
 	}
-	if got.InvestableCents != 0 || got.Growth != 0 {
-		t.Fatalf("should fund reserve first: %+v", got)
+}
+
+func TestNegativeCashflowCannotAllocateMoney(t *testing.T) {
+	p := profile{IncomeCents: 300_000}
+	base := preparePlan(p, cashflow{Source: "ledger", NeedsCents: 350_000, DebtCents: 80_000}, nil)
+	if base.SavingsCents != 0 {
+		t.Fatalf("negative cashflow produced surplus: %+v", base)
 	}
-	if got.Risk != "中" {
-		t.Fatalf("unstable income should cap risk at medium: %+v", got)
+	proposal := testProposal()
+	proposal.ReserveKind = "emergency"
+	proposal.ReserveTargetYuan = 3000
+	got, err := applyPlanProposal(base, p, proposal)
+	if err != nil || got.InvestableCents != 0 || got.ReserveMonthly != 0 {
+		t.Fatalf("zero-surplus handling failed: %+v %v", got, err)
 	}
 }
 
 func TestUnstableIncomeUsesObservedLowMonth(t *testing.T) {
-	p := profile{IncomeCents: 800_000, StableIncome: false, ReserveCents: 2_000_000, HorizonMonths: 60, MaxLossPct: 20, Experience: "some"}
-	c := cashflow{Months: 3, Count: 20, IncomeCents: 900_000, MinIncomeCents: 500_000, NeedsCents: 300_000, WantsCents: 100_000}
-	got := computePlan(p, c, nil)
+	p := profile{IncomeCents: 800_000, StableIncome: false}
+	c := cashflow{Source: "ledger", Months: 3, MinIncomeCents: 500_000, NeedsCents: 300_000, WantsCents: 100_000}
+	got := preparePlan(p, c, nil)
 	if got.IncomeCents != 500_000 || got.SavingsCents != 100_000 {
 		t.Fatalf("unstable income not conservatively budgeted: %+v", got)
-	}
-	if err := validatePlan(got); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestNegativeCashflowDoesNotCreateInvestment(t *testing.T) {
-	p := profile{IncomeCents: 300_000, StableIncome: true, HorizonMonths: 120, MaxLossPct: 30, Experience: "experienced"}
-	c := cashflow{Months: 1, Count: 5, NeedsCents: 350_000, DebtCents: 80_000}
-	got := computePlan(p, c, nil)
-	if got.SavingsCents != 0 || got.InvestableCents != 0 || got.Growth != 0 {
-		t.Fatalf("negative cashflow produced investment: %+v", got)
-	}
-	if err := validatePlan(got); err != nil {
-		t.Fatal(err)
 	}
 }
 

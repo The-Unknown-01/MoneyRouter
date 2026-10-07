@@ -19,7 +19,7 @@
     <input name="message" maxlength="2000" required aria-label="和画像助手对话" placeholder="例如：我是大学生，每月生活费 2500 元，通常花 2000 元">
     <button class="button primary">发送</button>
   </form>
-  <p class="flow-hint">助手会记录你明确说出的信息。你也可以直接编辑下面的摘要。</p>
+  <p class="flow-hint">助手会记录你明确说出的信息和分类月开销，并引导你进入后续分析。你也可以直接编辑下面的摘要。</p>
 </section>
 
 <section class="flow-section" id="confirm-profile">
@@ -29,7 +29,7 @@
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <div class="concept-card"><div class="concept-title"><span>01</span><strong>Income</strong><small>每月可用的钱</small></div><label>月收入 / 生活费（元）<input type="number" name="income" min="0.01" step="0.01" required value="{{if gt .Payload.Profile.IncomeCents 0}}{{moneyInput .Payload.Profile.IncomeCents}}{{end}}" placeholder="例如 2500"></label><label>来源（可选）<input name="income_source" maxlength="100" value="{{.Payload.Profile.IncomeSource}}" placeholder="工资、生活费、奖学金…"></label></div>
     <div class="concept-card"><div class="concept-title"><span>02</span><strong>Outcome</strong><small>每月大致支出</small></div><label>月支出估计（含还款，元）<input type="number" name="outcome" min="0" step="0.01" value="{{if .Payload.Profile.OutcomeKnown}}{{moneyInput .Payload.Profile.OutcomeCents}}{{end}}" placeholder="不知道可留空"></label><p class="flow-hint">下一步的分类开销可选填，也可以跳过。</p></div>
-    <div class="concept-card"><div class="concept-title"><span>03</span><strong>Feature</strong><small>你的特点与目标</small></div><label>用自己的话描述<textarea name="feature" maxlength="1000" rows="3" placeholder="例如：大学生，没有负债，想先攒应急钱">{{.Payload.Profile.Feature}}</textarea></label><p class="flow-hint">风险信息不足时按保守档计算；需要修正时继续告诉助手。</p></div>
+    <div class="concept-card"><div class="concept-title"><span>03</span><strong>Feature</strong><small>你的特点与目标</small></div><label>用自己的话描述<textarea name="feature" maxlength="1000" rows="3" placeholder="例如：大学生，主要生活费由家里承担，想攒旅行费">{{.Payload.Profile.Feature}}</textarea></label><p class="flow-hint">可以说明谁承担房租和其他大额开支、何时需要用钱、能够接受怎样的波动；不知道的细节可以留空。</p></div>
     <label class="check-row"><input type="checkbox" name="confirm" value="yes" {{if .Payload.Profile.Confirmed}}checked{{end}}><span>我已核对以上信息</span></label>
     <div class="flow-action"><button class="button primary">确认，继续安排开销 →</button><small>下一个步骤可以直接跳过。</small></div>
   </form>

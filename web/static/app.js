@@ -10,14 +10,14 @@ document.addEventListener('DOMContentLoaded', () => {
     '/profile': '正在确认三项摘要…',
     '/ledger': '正在保存账单…',
     '/ledger/quick': '正在汇总分类开销…',
-    '/ledger/skip': '正在准备临时方案…',
+    '/ledger/skip': '正在整理已有开销…',
     '/ledger/delete': '正在删除记录…',
     '/ledger/import': '正在解析 CSV…',
     '/ledger/preview': '正在更新导入预览…',
     '/ledger/confirm': '正在导入账单…',
     '/demo': '正在准备模拟账本…',
-    '/plan/generate': '正在计算并生成方案…',
-    '/plan/adjust': '正在重新计算方案…',
+    '/plan/generate': '方案 Agent 正在评估并校验分配…',
+    '/plan/adjust': '方案 Agent 正在重新评估分配…',
     '/chat': '方案助手正在回答…',
     '/clear': '正在清空账号数据…'
   };
