@@ -300,5 +300,11 @@ func (a *app) confirmCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.previews.drop(id)
+	if inserted > 0 {
+		if err := a.setLedgerStatus(currentUser(r).ID, "imported"); err != nil {
+			http.Error(w, "流程保存失败", 500)
+			return
+		}
+	}
 	redirect(w, r, "/ledger", fmt.Sprintf("已导入 %d 条，跳过重复 %d 条", inserted, duplicates))
 }

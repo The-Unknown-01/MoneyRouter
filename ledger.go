@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -133,13 +134,16 @@ func (a *app) summarizeCashflow(userID int64) (cashflow, error) {
 }
 
 type ledgerData struct {
-	Transactions                       []transaction
-	Categories                         []string
-	Month                              string
-	Category                           string
-	TransactionCount                   int
-	HasPlan                            bool
-	Income, Expense, Net, Needs, Wants int64
+	Transactions      []transaction
+	Categories        []string
+	ExpenseCategories []string
+	Estimates         map[string]int64
+	Status            string
+	ProfileOutcome    int64
+	OutcomeKnown      bool
+	Month             string
+	Category          string
+	TransactionCount  int
 }
 
 func (a *app) ledger(w http.ResponseWriter, r *http.Request) {
@@ -156,31 +160,164 @@ func (a *app) ledger(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "账本读取失败", 500)
 		return
 	}
-	d := ledgerData{Transactions: items, Categories: categories, Month: month, Category: category}
+	p, err := a.getProfile(currentUser(r).ID)
+	if err != nil {
+		http.Error(w, "画像读取失败", 500)
+		return
+	}
+	d := ledgerData{Transactions: items, Categories: categories, ExpenseCategories: expenseCategories, Estimates: map[string]int64{}, Month: month, Category: category, ProfileOutcome: p.OutcomeCents, OutcomeKnown: p.OutcomeKnown}
+	d.Status, err = a.ledgerStatus(currentUser(r).ID)
+	if err != nil {
+		http.Error(w, "流程读取失败", 500)
+		return
+	}
+	rows, err := a.db.Query(`SELECT category,amount_cents FROM expense_estimates WHERE user_id=?`, currentUser(r).ID)
+	if err != nil {
+		http.Error(w, "开销读取失败", 500)
+		return
+	}
+	for rows.Next() {
+		var category string
+		var amount int64
+		if err := rows.Scan(&category, &amount); err != nil {
+			rows.Close()
+			http.Error(w, "开销读取失败", 500)
+			return
+		}
+		d.Estimates[category] = amount
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		http.Error(w, "开销读取失败", 500)
+		return
+	}
+	rows.Close()
 	if err := a.db.QueryRow(`SELECT count(*) FROM transactions WHERE user_id=?`, currentUser(r).ID).Scan(&d.TransactionCount); err != nil {
 		http.Error(w, "账本读取失败", 500)
 		return
 	}
-	var planCount int
-	if err := a.db.QueryRow(`SELECT count(*) FROM plans WHERE user_id=?`, currentUser(r).ID).Scan(&planCount); err != nil {
-		http.Error(w, "方案读取失败", 500)
+	a.render(w, r, "ledger.html", pageData{Title: "月度开销", Active: "ledger", Payload: d})
+}
+
+var expenseCategories = []string{"住房", "餐饮", "交通", "医疗", "教育", "还款", "购物", "娱乐", "其他"}
+
+func (a *app) ledgerStatus(userID int64) (string, error) {
+	var status string
+	err := a.db.QueryRow(`SELECT ledger_status FROM profile_facts WHERE user_id=?`, userID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return status, err
+}
+
+func (a *app) setLedgerStatus(userID int64, status string) error {
+	_, err := a.db.Exec(`INSERT INTO profile_facts(user_id,ledger_status) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET ledger_status=excluded.ledger_status`, userID, status)
+	return err
+}
+
+func (a *app) saveQuickExpenses(w http.ResponseWriter, r *http.Request) {
+	values := make(map[string]int64, len(expenseCategories))
+	var total int64
+	for _, category := range expenseCategories {
+		raw := strings.TrimSpace(r.FormValue("expense_" + category))
+		if raw == "" {
+			continue
+		}
+		amount, err := parseMoney(raw)
+		if err != nil {
+			fail(w, r, "/ledger", category+"金额无效")
+			return
+		}
+		values[category] = amount
+		total += amount
+	}
+	if total <= 0 || total > 100_000_000_000 {
+		fail(w, r, "/ledger", "请至少填写一项有效月开销，或选择跳过")
 		return
 	}
-	d.HasPlan = planCount > 0
-	for _, t := range items {
-		if t.Direction == "income" {
-			d.Income += t.AmountCents
-		} else {
-			d.Expense += t.AmountCents
-			if essentialCategory(t.Category) {
-				d.Needs += t.AmountCents
-			} else {
-				d.Wants += t.AmountCents
-			}
+	u := currentUser(r)
+	tx, err := a.db.Begin()
+	if err != nil {
+		http.Error(w, "保存失败", 500)
+		return
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`DELETE FROM expense_estimates WHERE user_id=?`, u.ID); err != nil {
+		http.Error(w, "保存失败", 500)
+		return
+	}
+	for category, amount := range values {
+		if amount == 0 {
+			continue
+		}
+		if _, err = tx.Exec(`INSERT INTO expense_estimates(user_id,category,amount_cents) VALUES(?,?,?)`, u.ID, category, amount); err != nil {
+			http.Error(w, "保存失败", 500)
+			return
 		}
 	}
-	d.Net = d.Income - d.Expense
-	a.render(w, r, "ledger.html", pageData{Title: "账单工作台", Active: "ledger", Payload: d})
+	if _, err = tx.Exec(`INSERT INTO profile_facts(user_id,ledger_status) VALUES(?,'quick') ON CONFLICT(user_id) DO UPDATE SET ledger_status='quick'`, u.ID); err != nil {
+		http.Error(w, "保存失败", 500)
+		return
+	}
+	if err = tx.Commit(); err != nil {
+		http.Error(w, "保存失败", 500)
+		return
+	}
+	redirect(w, r, "/plan", "分类月开销已保存")
+}
+
+func (a *app) skipLedger(w http.ResponseWriter, r *http.Request) {
+	if err := a.setLedgerStatus(currentUser(r).ID, "skipped"); err != nil {
+		http.Error(w, "流程保存失败", 500)
+		return
+	}
+	redirect(w, r, "/plan", "已跳过账本，方案将使用对话中的月支出估计")
+}
+
+func (a *app) effectiveCashflow(userID int64, p profile) (cashflow, error) {
+	status, err := a.ledgerStatus(userID)
+	if err != nil {
+		return cashflow{}, err
+	}
+	if status == "quick" {
+		rows, err := a.db.Query(`SELECT category,amount_cents FROM expense_estimates WHERE user_id=?`, userID)
+		if err != nil {
+			return cashflow{}, err
+		}
+		defer rows.Close()
+		c := cashflow{Source: "quick", Months: 1}
+		for rows.Next() {
+			var category string
+			var amount int64
+			if err := rows.Scan(&category, &amount); err != nil {
+				return cashflow{}, err
+			}
+			c.Count++
+			switch {
+			case category == "还款":
+				c.DebtCents += amount
+			case essentialCategory(category):
+				c.NeedsCents += amount
+			default:
+				c.WantsCents += amount
+			}
+		}
+		return c, rows.Err()
+	}
+	if status != "skipped" {
+		c, err := a.summarizeCashflow(userID)
+		if err != nil {
+			return c, err
+		}
+		if c.Count > 0 && c.NeedsCents+c.WantsCents+c.DebtCents > 0 {
+			c.Source = "ledger"
+			return c, nil
+		}
+	}
+	if p.OutcomeKnown {
+		return cashflow{Source: "conversation", NeedsCents: max64(0, p.OutcomeCents-p.DebtCents), DebtCents: p.DebtCents}, nil
+	}
+	return cashflow{Source: "unknown"}, nil
 }
 
 func (a *app) saveTransaction(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +348,10 @@ func (a *app) saveTransaction(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+		if err := a.setLedgerStatus(u.ID, "manual"); err != nil {
+			http.Error(w, "流程保存失败", 500)
+			return
+		}
 		redirect(w, r, "/ledger", "记录已更新")
 		return
 	}
@@ -226,6 +367,10 @@ func (a *app) saveTransaction(w http.ResponseWriter, r *http.Request) {
 	_, err = a.db.Exec(`INSERT INTO transactions(user_id,date,direction,amount_cents,category,description,note,source,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, u.ID, date, direction, amount, category, desc, note, "manual", utcNow())
 	if err != nil {
 		http.Error(w, "保存失败", 500)
+		return
+	}
+	if err := a.setLedgerStatus(u.ID, "manual"); err != nil {
+		http.Error(w, "流程保存失败", 500)
 		return
 	}
 	redirect(w, r, "/ledger", "记录已保存")
@@ -246,6 +391,14 @@ func (a *app) deleteTransaction(w http.ResponseWriter, r *http.Request) {
 	if n == 0 {
 		http.NotFound(w, r)
 		return
+	}
+	var remaining int
+	if err := a.db.QueryRow(`SELECT count(*) FROM transactions WHERE user_id=?`, currentUser(r).ID).Scan(&remaining); err != nil {
+		http.Error(w, "账本读取失败", 500)
+		return
+	}
+	if remaining == 0 {
+		_ = a.setLedgerStatus(currentUser(r).ID, "")
 	}
 	redirect(w, r, "/ledger", "记录已删除")
 }
@@ -318,6 +471,10 @@ func (a *app) seedDemo(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, "样例载入失败", 500)
+		return
+	}
+	if err := a.setLedgerStatus(u.ID, "imported"); err != nil {
+		http.Error(w, "流程保存失败", 500)
 		return
 	}
 	redirect(w, r, "/ledger", "已载入当前账号专属模拟账单，可继续生成方案")

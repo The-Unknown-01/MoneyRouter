@@ -14,6 +14,13 @@ func (a *app) nextStep(userID int64) (string, error) {
 	if !p.Confirmed || p.IncomeCents <= 0 {
 		return "/profile", nil
 	}
+	status, err := a.ledgerStatus(userID)
+	if err != nil {
+		return "", err
+	}
+	if status == "skipped" || status == "quick" {
+		return "/plan", nil
+	}
 	var count int
 	if err := a.db.QueryRow(`SELECT count(*) FROM transactions WHERE user_id=?`, userID).Scan(&count); err != nil {
 		return "", err

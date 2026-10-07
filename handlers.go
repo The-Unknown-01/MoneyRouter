@@ -58,7 +58,7 @@ func (a *app) latestPlan(userID int64) (*plan, error) {
 func (a *app) planPage(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	p, _ := a.getProfile(u.ID)
-	cash, _ := a.summarizeCashflow(u.ID)
+	cash, _ := a.effectiveCashflow(u.ID, p)
 	latest, err := a.latestPlan(u.ID)
 	if err != nil {
 		http.Error(w, "方案读取失败", 500)
@@ -108,13 +108,9 @@ func (a *app) generatePlan(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, "/profile", "请先填写并确认财务画像")
 		return
 	}
-	cash, err := a.summarizeCashflow(u.ID)
+	cash, err := a.effectiveCashflow(u.ID, profile)
 	if err != nil {
 		http.Error(w, "账单统计失败", 500)
-		return
-	}
-	if cash.Count == 0 {
-		fail(w, r, "/ledger", "请先录入账单或载入样例")
 		return
 	}
 	previous, err := a.latestPlan(u.ID)
@@ -141,15 +137,11 @@ func (a *app) generatePlan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方案校验失败: "+err.Error(), 500)
 		return
 	}
-	if a.deepseek.Available() {
-		if narrative, err := a.deepseek.ExplainPlan(ctx, &p, profile.Goal); err == nil && narrative != "" {
-			p.Narrative = narrative
-		} else {
+	p.Narrative = localNarrative(p)
+	if a.deepseek.Available() && !p.Provisional {
+		if _, err := a.deepseek.ExplainPlan(ctx, &p, profile.Goal); err != nil {
 			p.Warnings = append(p.Warnings, "智能解释暂不可用，已使用可复算的规则说明")
 		}
-	}
-	if p.Narrative == "" {
-		p.Narrative = localNarrative(p)
 	}
 	if err := validatePlan(p); err != nil {
 		http.Error(w, "方案复核失败: "+err.Error(), 500)
@@ -167,6 +159,9 @@ func (a *app) generatePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func localNarrative(p plan) string {
+	if p.Provisional {
+		return "你已经提供了月度可用收入与个人特点。月支出还不明确，因此暂时无法可靠计算结余、预备金缺口或可投资金额。可以回到画像告诉助手一个粗略月支出，仍然无需填写账本。"
+	}
 	return fmt.Sprintf("月收入 %s 中，先安排必要开支 %s、债务还款 %s 与可选开支 %s。本月计划结余 %s，其中 %s 补充预备金。风险档位为%s，增长类不超过可投资余额的 %d%%。示例年化情景 %.2f%% 仅用于比较，与实际收益无关。", formatMoney(p.IncomeCents), formatMoney(p.NeedsCents), formatMoney(p.DebtCents), formatMoney(p.WantsCents), formatMoney(p.SavingsCents), formatMoney(p.ReserveMonthly), p.Risk, p.GrowthCapPct, p.ScenarioPct)
 }
 
@@ -175,6 +170,10 @@ func (a *app) adjustPlan(w http.ResponseWriter, r *http.Request) {
 	old, err := a.latestPlan(u.ID)
 	if err != nil || old == nil {
 		fail(w, r, "/plan", "请先生成方案")
+		return
+	}
+	if old.Provisional {
+		fail(w, r, "/profile", "请先提供大致月支出，再调整方案")
 		return
 	}
 	version, err := strconv.Atoi(r.FormValue("version"))
@@ -188,7 +187,7 @@ func (a *app) adjustPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	profile, _ := a.getProfile(u.ID)
-	cash, _ := a.summarizeCashflow(u.ID)
+	cash, _ := a.effectiveCashflow(u.ID, profile)
 	if cap < cash.WantsCents {
 		cash.WantsCents = cap
 	}

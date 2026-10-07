@@ -261,19 +261,35 @@ func TestProfileAgentExtractsDraftForCurrentAccount(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
 			t.Error(err)
 		}
-		if requestBody["response_format"] == nil {
-			t.Error("profile extraction did not request structured output")
+		if requestBody["tools"] == nil {
+			t.Error("profile agent did not expose its fact recording tool")
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": `{"income_yuan":8500,"stable_income":false,"max_loss_pct":5,"goal":"先建立预备金","message":"已记录","next_question":"请核对表单"}`}}}})
+		messages, _ := requestBody["messages"].([]any)
+		for _, raw := range messages {
+			m, _ := raw.(map[string]any)
+			if m["role"] == "tool" {
+				_ = json.NewEncoder(w).Encode(map[string]any{"id": "test_response_2", "choices": []any{
+					map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": "你每月花销大致是多少？"}, "finish_reason": "stop"},
+				}})
+				return
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "test_response_1", "choices": []any{
+			map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": "", "tool_calls": []any{
+				map[string]any{"id": "call_profile_1", "type": "function", "function": map[string]any{"name": "record_profile_facts", "arguments": `{"income_yuan":8500,"outcome_yuan":6000,"stable_income":false,"max_loss_pct":5,"feature":"自由职业，先建立预备金"}`}},
+			}}, "finish_reason": "tool_calls"},
+		}})
 	}))
 	defer server.Close()
 	a.deepseek = &deepseekClient{key: "test", base: server.URL, http: server.Client(), sem: make(chan struct{}, 2)}
-	w := request(t, a, "POST", "/profile/ask", url.Values{"csrf": {at}, "message": {"我月收入8500元，不稳定，最多亏5%，先建立预备金"}}, ac)
+	w := request(t, a, "POST", "/profile/ask", url.Values{"csrf": {at}, "message": {"我是自由职业者，月收入8500元，花6000元，最多亏5%，先建立预备金"}}, ac)
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("agent answer: %d %s", w.Code, w.Body.String())
 	}
 	p, err := a.getProfile(aid)
-	if err != nil || p.IncomeCents != 850000 || p.StableIncome || p.MaxLossPct != 5 || p.Confirmed {
+	if err != nil || p.IncomeCents != 850000 || p.OutcomeCents != 600000 || !p.OutcomeKnown || p.StableIncome || p.MaxLossPct != 5 || p.Feature == "" || p.Confirmed {
+		messages, _ := a.listMessages(aid, "profile", 5)
+		t.Logf("profile conversation: %+v", messages)
 		t.Fatalf("wrong draft: %+v %v", p, err)
 	}
 	other, err := a.getProfile(otherID)
@@ -318,5 +334,107 @@ func TestConcurrentAccountsKeepLedgersSeparate(t *testing.T) {
 		if err := a.db.QueryRow(`SELECT count(*) FROM transactions WHERE user_id=?`, id).Scan(&count); err != nil || count != 20 {
 			t.Fatalf("account %d got %d rows: %v", id, count, err)
 		}
+	}
+}
+
+func TestOptionalLedgerSupportsStudentAndUnknownOutcome(t *testing.T) {
+	a := testApp(t)
+	studentCookie, studentCSRF, studentID := registerTestUser(t, a, "student_flow")
+	unknownCookie, unknownCSRF, unknownID := registerTestUser(t, a, "unknown_outcome")
+	for _, tc := range []struct {
+		cookie  *http.Cookie
+		csrf    string
+		income  string
+		outcome string
+		feature string
+	}{
+		{studentCookie, studentCSRF, "2500", "2000", "大学生，靠生活费，希望攒应急钱"},
+		{unknownCookie, unknownCSRF, "6000", "", "收入不固定，暂时不清楚开销"},
+	} {
+		w := request(t, a, "POST", "/profile", url.Values{"csrf": {tc.csrf}, "income": {tc.income}, "outcome": {tc.outcome}, "feature": {tc.feature}, "confirm": {"yes"}}, tc.cookie)
+		if w.Code != http.StatusSeeOther || !strings.HasPrefix(w.Header().Get("Location"), "/ledger") {
+			t.Fatalf("profile: %d %s", w.Code, w.Header().Get("Location"))
+		}
+		w = request(t, a, "POST", "/ledger/skip", url.Values{"csrf": {tc.csrf}}, tc.cookie)
+		if w.Code != http.StatusSeeOther || !strings.HasPrefix(w.Header().Get("Location"), "/plan") {
+			t.Fatalf("skip: %d %s", w.Code, w.Header().Get("Location"))
+		}
+		w = request(t, a, "POST", "/plan/generate", url.Values{"csrf": {tc.csrf}}, tc.cookie)
+		if w.Code != http.StatusSeeOther {
+			t.Fatalf("generate: %d %s", w.Code, w.Body.String())
+		}
+	}
+	studentPlan, err := a.latestPlan(studentID)
+	if err != nil || studentPlan == nil || studentPlan.Provisional || studentPlan.NeedsCents != 200000 || studentPlan.IncomeCents != 250000 {
+		t.Fatalf("student plan: %+v %v", studentPlan, err)
+	}
+	unknownPlan, err := a.latestPlan(unknownID)
+	if err != nil || unknownPlan == nil || !unknownPlan.Provisional || unknownPlan.InvestableCents != 0 {
+		t.Fatalf("unknown plan: %+v %v", unknownPlan, err)
+	}
+	if page := request(t, a, "GET", "/plan", nil, unknownCookie).Body.String(); !strings.Contains(page, "待补月支出") || strings.Contains(page, "可配置资金怎么分") {
+		t.Fatal("provisional page exposed allocation")
+	}
+}
+
+func TestQuickExpenseCategoriesOverrideConversationEstimate(t *testing.T) {
+	a := testApp(t)
+	cookie, csrf, id := registerTestUser(t, a, "quick_expenses")
+	request(t, a, "POST", "/profile", url.Values{"csrf": {csrf}, "income": {"8000"}, "outcome": {"5000"}, "feature": {"固定工资"}, "confirm": {"yes"}}, cookie)
+	w := request(t, a, "POST", "/ledger/quick", url.Values{"csrf": {csrf}, "expense_住房": {"2500"}, "expense_餐饮": {"1200"}, "expense_医疗": {"300"}, "expense_娱乐": {"500"}}, cookie)
+	if w.Code != http.StatusSeeOther || !strings.HasPrefix(w.Header().Get("Location"), "/plan") {
+		t.Fatalf("quick entry: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	p, _ := a.getProfile(id)
+	c, err := a.effectiveCashflow(id, p)
+	if err != nil || c.Source != "quick" || c.NeedsCents != 400000 || c.WantsCents != 50000 {
+		t.Fatalf("cashflow: %+v %v", c, err)
+	}
+	if page := request(t, a, "GET", "/ledger", nil, cookie).Body.String(); !strings.Contains(page, "导入 CSV") || !strings.Contains(page, "分类月开销") {
+		t.Fatal("simplified ledger missing")
+	}
+}
+
+func TestConversationOutcomeIncludesDebtOnce(t *testing.T) {
+	a := testApp(t)
+	_, _, id := registerTestUser(t, a, "outcome_debt")
+	p := profile{IncomeCents: 800000, OutcomeCents: 500000, OutcomeKnown: true, DebtCents: 100000}
+	c, err := a.effectiveCashflow(id, p)
+	if err != nil || c.NeedsCents != 400000 || c.DebtCents != 100000 {
+		t.Fatalf("outcome double counted debt: %+v %v", c, err)
+	}
+}
+
+func TestPlanNarrativeNeverUsesUnverifiedModelNumbers(t *testing.T) {
+	a := testApp(t)
+	cookie, csrf, id := registerTestUser(t, a, "narrative_guard")
+	request(t, a, "POST", "/profile", url.Values{"csrf": {csrf}, "income": {"2500"}, "outcome": {"2000"}, "feature": {"大学生"}, "confirm": {"yes"}}, cookie)
+	request(t, a, "POST", "/ledger/skip", url.Values{"csrf": {csrf}}, cookie)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var requestBody map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&requestBody)
+		messages, _ := requestBody["messages"].([]any)
+		for _, raw := range messages {
+			m, _ := raw.(map[string]any)
+			if m["role"] == "tool" {
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "本月只结余 ¥50.00，预备金目标 ¥1200.00。"}}}})
+				return
+			}
+		}
+		calls := []any{}
+		for i, name := range []string{"summarize_cashflow", "allocate_budget", "calculate_reserve", "assess_risk", "propose_allocation", "check_goal"} {
+			calls = append(calls, map[string]any{"id": fmt.Sprintf("call_%d", i), "type": "function", "function": map[string]any{"name": name, "arguments": "{}"}})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "tool_calls": calls}}}})
+	}))
+	defer server.Close()
+	a.deepseek = &deepseekClient{key: "test", base: server.URL, http: server.Client(), sem: make(chan struct{}, 2)}
+	w := request(t, a, "POST", "/plan/generate", url.Values{"csrf": {csrf}}, cookie)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("generate: %d %s", w.Code, w.Body.String())
+	}
+	p, err := a.latestPlan(id)
+	if err != nil || p == nil || !strings.Contains(p.Narrative, "¥500.00") || strings.Contains(p.Narrative, "¥50.00") {
+		t.Fatalf("unverified narrative: %+v %v", p, err)
 	}
 }

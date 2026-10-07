@@ -102,6 +102,8 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /", a.withUser(a.startPage))
 	mux.HandleFunc("GET /ledger", a.withUser(a.requireStage("ledger", a.ledger)))
 	mux.HandleFunc("POST /ledger", a.withUser(a.requireStage("ledger", a.saveTransaction)))
+	mux.HandleFunc("POST /ledger/quick", a.withUser(a.requireStage("ledger", a.saveQuickExpenses)))
+	mux.HandleFunc("POST /ledger/skip", a.withUser(a.requireStage("ledger", a.skipLedger)))
 	mux.HandleFunc("POST /ledger/delete", a.withUser(a.requireStage("ledger", a.deleteTransaction)))
 	mux.HandleFunc("POST /ledger/import", a.withUser(a.requireStage("ledger", a.importCSV)))
 	mux.HandleFunc("GET /ledger/preview", a.withUser(a.requireStage("ledger", a.previewCSV)))

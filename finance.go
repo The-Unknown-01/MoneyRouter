@@ -13,6 +13,10 @@ const algorithmVersion = "budget-workflow-v1"
 
 type profile struct {
 	IncomeCents   int64
+	OutcomeCents  int64
+	OutcomeKnown  bool
+	Feature       string
+	IncomeSource  string
 	StableIncome  bool
 	FamilyLoad    bool
 	DebtCents     int64
@@ -25,13 +29,14 @@ type profile struct {
 }
 
 type cashflow struct {
-	Months         int   `json:"months"`
-	IncomeCents    int64 `json:"income_cents"`
-	MinIncomeCents int64 `json:"min_income_cents"`
-	NeedsCents     int64 `json:"needs_cents"`
-	WantsCents     int64 `json:"wants_cents"`
-	DebtCents      int64 `json:"debt_cents"`
-	Count          int   `json:"count"`
+	Source         string `json:"source"`
+	Months         int    `json:"months"`
+	IncomeCents    int64  `json:"income_cents"`
+	MinIncomeCents int64  `json:"min_income_cents"`
+	NeedsCents     int64  `json:"needs_cents"`
+	WantsCents     int64  `json:"wants_cents"`
+	DebtCents      int64  `json:"debt_cents"`
+	Count          int    `json:"count"`
 }
 
 type traceStep struct {
@@ -41,6 +46,7 @@ type traceStep struct {
 }
 
 type plan struct {
+	Provisional     bool        `json:"provisional"`
 	Version         int         `json:"version"`
 	Algorithm       string      `json:"algorithm"`
 	IncomeCents     int64       `json:"income_cents"`
@@ -138,7 +144,14 @@ func computePlan(p profile, c cashflow, sources []newsItem) plan {
 	}
 	result.NeedsCents = c.NeedsCents
 	result.DebtCents = max64(p.DebtCents, c.DebtCents)
-	if c.Months < 2 {
+	if c.Source == "unknown" {
+		result.Provisional = true
+		result.DataQuality = "尚无月支出估计，仅提供临时建议"
+	} else if c.Source == "conversation" {
+		result.DataQuality = "基于对话中确认的月支出估计；可随时补充分类开销"
+	} else if c.Source == "quick" {
+		result.DataQuality = "基于手填的分类月开销估计"
+	} else if c.Months < 2 {
 		result.DataQuality = "账单样本不足两个月，结果仅作初步参考"
 	} else {
 		result.DataQuality = fmt.Sprintf("基于最近 %d 个月的账单汇总", c.Months)
@@ -147,8 +160,15 @@ func computePlan(p profile, c cashflow, sources []newsItem) plan {
 	if result.IncomeCents <= 0 {
 		result.Warnings = append(result.Warnings, "缺少有效收入，请在画像中补充税后月收入")
 	}
-	if c.Count == 0 {
-		result.Warnings = append(result.Warnings, "账本为空，请先上传 CSV 或手动填写账单")
+	if c.Source == "conversation" && p.DebtCents > p.OutcomeCents {
+		result.Warnings = append(result.Warnings, "月债务还款高于所述总支出，请核对 Outcome；本方案优先计入债务")
+	}
+	if result.Provisional {
+		result.Warnings = append(result.Warnings, "尚不知道每月大致支出，无法安全计算结余和具体投资金额")
+		result.Risk, result.RiskReason, result.GrowthCapPct = assessRisk(p, result.IncomeCents)
+		result.Narrative = "先记录收入与个人特点；补充一个大致的月支出数字后，才能计算预备金与资金分配。账本可继续跳过。"
+		step("await_outcome", "缺少月支出估计，暂停具体资金分配")
+		return result
 	}
 	available := result.IncomeCents - result.NeedsCents - result.DebtCents
 	if available < 0 {

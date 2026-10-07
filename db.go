@@ -36,6 +36,8 @@ func openDatabase(path string) (*database, error) {
 		`CREATE UNIQUE INDEX IF NOT EXISTS tx_dedupe ON transactions(user_id,fingerprint) WHERE fingerprint IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS tx_user_date ON transactions(user_id,date DESC)`,
 		`CREATE TABLE IF NOT EXISTS profiles (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, income_cents INTEGER NOT NULL DEFAULT 0, stable_income INTEGER NOT NULL DEFAULT 1, family_load INTEGER NOT NULL DEFAULT 0, debt_cents INTEGER NOT NULL DEFAULT 0, reserve_cents INTEGER NOT NULL DEFAULT 0, horizon_months INTEGER NOT NULL DEFAULT 36, max_loss_pct INTEGER NOT NULL DEFAULT 0, experience TEXT NOT NULL DEFAULT 'none', goal TEXT NOT NULL DEFAULT '', confirmed INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS profile_facts (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, outcome_cents INTEGER NOT NULL DEFAULT 0, outcome_known INTEGER NOT NULL DEFAULT 0, feature TEXT NOT NULL DEFAULT '', income_source TEXT NOT NULL DEFAULT '', ledger_status TEXT NOT NULL DEFAULT '')`,
+		`CREATE TABLE IF NOT EXISTS expense_estimates (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, category TEXT NOT NULL, amount_cents INTEGER NOT NULL CHECK(amount_cents >= 0), PRIMARY KEY(user_id,category))`,
 		`CREATE TABLE IF NOT EXISTS plans (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, version INTEGER NOT NULL, data_json TEXT NOT NULL, narrative TEXT NOT NULL DEFAULT '', trace_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(user_id,version))`,
 		`CREATE INDEX IF NOT EXISTS plans_user ON plans(user_id,version DESC)`,
 		`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, scope TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL)`,
@@ -68,7 +70,7 @@ func (d *database) clearUserData(userID int64) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"messages", "plans", "transactions", "profiles"} {
+	for _, table := range []string{"messages", "plans", "transactions", "expense_estimates", "profile_facts", "profiles"} {
 		if _, err := tx.Exec("DELETE FROM "+table+" WHERE user_id=?", userID); err != nil {
 			return err
 		}
