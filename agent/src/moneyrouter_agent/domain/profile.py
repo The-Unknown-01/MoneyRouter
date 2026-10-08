@@ -3,7 +3,7 @@
 设计要点（对齐计划第三节）：
 
 - ``ProfileDraft`` 是访谈过程中的「活理解」快照，``None`` 表示尚未了解到；
-- **不做必需字段门槛**——完成与否完全由模型判断，这里只是承载理解的容器；
+- 标准字段需收集齐，明确拒答的字段允许留空；
 - 字段语义写在 ``Field(description=...)`` 里，交给结构化输出（schema 管格式、prompt 管判断）；
 - ``max_loss_pct=0`` 是合法值（完全不接受亏损），**不能**用 0 表示「未回答」。
 """
@@ -30,6 +30,8 @@ class ProfileDraft(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    notes: str | None = Field(default=None, description="标准字段之外的补充信息与顾虑，跨轮保留，作为画像备注。")
+
     occupation: str | None = Field(
         default=None,
         description="职业，如「学生」「程序员」「自由职业者」。未识别到就留空。",
@@ -42,6 +44,8 @@ class ProfileDraft(BaseModel):
         default=None,
         description="收入口径说明，如「税后月薪」「每月生活费」「接单收入」。",
     )
+    outcome_cents: int | None = Field(default=None, ge=0, description="通常每月总开销，整数分；不是本月已花或预算")
+    feature: str | None = Field(default=None, max_length=1000, description="用户明确表达的生活情况、家庭支持和偏好")
     income_stable: bool | None = Field(default=None, description="收入是否稳定。")
     family_load: bool | None = Field(default=None, description="是否需要承担家庭负担（养家）。")
     debt_cents: int | None = Field(default=None, description="负债金额（分）；没有负债填 0。")

@@ -1,3 +1,5 @@
+> 当前融合实现以 [MERGE_IMPLEMENTATION.md](docs/MERGE_IMPLEMENTATION.md) 为准：LangGraph Agent 自主提出钱包分配，代码只计算校验；以下固定比例与规则降级属于历史约定。
+
 # 工行杯个人财务规划 WebApp — WORKPLAN
 
 状态：方案与默认参数已获批准，实施中 · 2026-10-06

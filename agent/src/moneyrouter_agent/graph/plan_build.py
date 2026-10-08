@@ -51,6 +51,12 @@ from .plan_state import PlanState
 
 # 状态里出现的领域模型，需显式允许反序列化（否则未来版本会被拦下）。
 ALLOWED_MSGPACK_MODULES: list[tuple[str, ...]] = [
+    ("moneyrouter_agent.domain.month", "WalletExecution"),
+    ("moneyrouter_agent.domain.month", "PaymentObligation"),
+    ("moneyrouter_agent.domain.month", "LifeEvent"),
+    ("moneyrouter_agent.domain.wallet", "WalletProposal"),
+    ("moneyrouter_agent.domain.wallet", "Wallet"),
+    ("moneyrouter_agent.domain.wallet", "InvestmentStep"),
     ("moneyrouter_agent.domain.plan", "Plan"),
     ("moneyrouter_agent.domain.plan", "PlanStrategy"),
     ("moneyrouter_agent.domain.plan", "CashflowSummary"),

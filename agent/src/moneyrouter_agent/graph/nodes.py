@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -21,6 +22,24 @@ TurnRunner = Callable[[list[BaseMessage]], Any]
 FinalizeRunner = Callable[[list[BaseMessage]], Any]
 
 CONFIRM_ACTIONS = ("confirm", "edit", "more")
+PROFILE_QUESTIONS = {
+    "occupation": "您的职业是什么？", "income_cents": "每月收入或生活费大约多少元？",
+    "income_basis": "这笔收入来自工资、生活费还是其他来源？", "outcome_cents": "通常每月开销大约多少元？",
+    "feature": "平时的生活情况和家庭支持是怎样的？", "income_stable": "收入或生活费是否稳定？",
+    "family_load": "您是否需要承担养家、赡养或抚养的支出？", "debt_cents": "目前负债总额大约多少元？没有可以说零。",
+    "reserve_cents": "现有可动用储蓄大约多少元？", "horizon_months": "预计多久后用这笔钱？大约几个月或几年都可以。",
+    "max_loss_pct": "最多能接受多少百分比的短期亏损？完全不能接受可以说零。",
+    "experience": "以前接触过哪些投资，熟悉程度如何？", "goal": "您希望攒钱实现什么目标？",
+}
+
+
+def _merge_notes(old: str, new: str) -> str:
+    if old and old in new:
+        return new
+    if new and new in old:
+        return old
+    return "\n".join(dict.fromkeys(x.strip() for x in (old, new) if x and x.strip()))
+
 
 
 # --------------------------------------------------------------------------- #
@@ -58,6 +77,10 @@ def _state_context(state: dict) -> list[BaseMessage]:
         lines.append("已知信息：" + draft.model_dump_json(exclude_none=True))
     if notes:
         lines.append("额外了解：" + notes)
+    lines.append("已明确拒答：" + str(state.get("refused_fields") or {}))
+    lines.append("仍需追问的问题：" + str(state.get("pending_questions") or []))
+    if draft is not None:
+        lines.append("未收集且未拒答的字段：" + str([k for k in PROFILE_QUESTIONS if getattr(draft, k) is None and k not in (state.get("refused_fields") or {})]))
     return [SystemMessage(content="\n".join(lines))]
 
 
@@ -111,12 +134,28 @@ def make_converse(turn_runner: TurnRunner, *, system_prompt: str = INTERVIEW_SYS
             decision = TurnDecision.model_validate(decision)
 
         draft = _fill_missing(decision.understanding or ProfileDraft(), state.get("understanding"))
-        notes = (decision.notes or "").strip() or (state.get("notes") or "")
+        notes = _merge_notes(state.get("notes") or "", decision.notes or "")
+        draft.notes = _merge_notes(draft.notes or "", notes) or None
+        user_texts = [str(m.content) for m in state.get("messages", []) if isinstance(m, HumanMessage)]
+        refused = dict(state.get("refused_fields") or {})
+        for key, quote in decision.refused_fields.items():
+            explicit_refusal = re.search(r"不(?:想|愿|方便|回答|告诉|提供|透露|说)|拒绝|跳过|保密|隐私|略过", quote)
+            if key in PROFILE_QUESTIONS and explicit_refusal and any(quote.strip() in text for text in user_texts):
+                refused[key] = quote.strip()
+        missing = [key for key in PROFILE_QUESTIONS if getattr(draft, key) is None and key not in refused]
+        pending = [q.strip() for q in decision.pending_questions if q.strip()]
+        ready = bool(decision.ready_to_finalize) and not missing and not pending
+        reply = decision.reply or ""
+        if decision.ready_to_finalize and not ready:
+            questions = [PROFILE_QUESTIONS[k] for k in missing[:2]] if missing else pending[:2]
+            reply = "还需要补充了解一些信息，才能整理画像。" + " ".join(questions) + " 如果不愿回答，可以明确告诉我。"
         return {
-            "messages": [AIMessage(content=decision.reply or "")],
+            "messages": [AIMessage(content=reply)],
             "understanding": draft,
             "notes": notes,
-            "ready_to_finalize": bool(decision.ready_to_finalize),
+            "ready_to_finalize": ready,
+            "refused_fields": refused,
+            "pending_questions": pending,
             "rationale": decision.rationale or "",
             "reasoning": reasoning,
             "turn_count": turn_count,
@@ -147,6 +186,10 @@ def make_finalize(finalize_runner: FinalizeRunner, *, system_prompt: str = FINAL
             if not isinstance(result, ProfileResult):
                 result = ProfileResult.model_validate(result)
             profile = _fill_missing(result.profile, draft, Profile)
+            for key in state.get("refused_fields") or {}:
+                if key in PROFILE_QUESTIONS and getattr(draft, key) is None:
+                    setattr(profile, key, None)
+            profile.notes = _merge_notes(profile.notes or "", state.get("notes") or "") or None
             return {
                 "final_profile": profile,
                 "articulation": (result.articulation or "").strip() or (state.get("notes") or ""),

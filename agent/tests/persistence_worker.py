@@ -14,6 +14,7 @@ from moneyrouter_agent.domain.month import MonthSnapshot, MonthResult, IncomeFac
 from moneyrouter_agent.domain.month_turn import MonthTurnDecision
 from moneyrouter_agent.domain.plan import PlanInputs, build_plan
 from moneyrouter_agent.domain.plan_turn import PlanTurnDecision, PlanAdjustment
+from moneyrouter_agent.domain.wallet import Wallet, WalletProposal
 from moneyrouter_agent.domain.summary import SummaryDraft
 from moneyrouter_agent.history import JsonMonthHistoryStore, MonthRecord
 
@@ -22,7 +23,7 @@ root = Path(root)
 settings = Settings(api_key="scripted")
 profile = Profile(income_cents=1000000, income_stable=True, debt_cents=0, reserve_cents=2000000,
                   max_loss_pct=10, horizon_months=36, experience="some", family_load=False)
-snap = MonthSnapshot(period="2026-09", income=IncomeFact(amount_cents=1000000),
+snap = MonthSnapshot(period="2026-09", obligations_reviewed=True, income=IncomeFact(amount_cents=1000000),
                      categories=[CategorySpend(category="居住",amount_cents=300000), CategorySpend(category="购物",amount_cents=500000)])
 inputs = PlanInputs(profile=profile, snapshot=snap, period="2026-09", debt_payment_cents=0)
 history = JsonMonthHistoryStore(str(root / "months"))
@@ -42,13 +43,16 @@ elif kind == "month":
         assert result.recorded and history.load("2026-09").snapshot.coverage_complete is False
 elif kind == "plan":
     agent = PlanAgent(settings=settings, inputs=inputs if phase == "start" else None,
-        agent_runner=lambda _: AIMessage(content="足够"), decide_runner=lambda _: PlanTurnDecision(status="finalize",reply="核对"),
+        agent_runner=lambda _: AIMessage(content="足够"), decide_runner=lambda _: PlanTurnDecision(status="finalize",reply="核对", proposal=WalletProposal(headline="钱包安排",wallets=[
+            Wallet(id="home",name="居住",kind="expense",category="居住",amount_cents=300000,reason="覆盖实际",execution="已支付"),
+            Wallet(id="shop",name="购物",kind="expense",category="购物",amount_cents=500000,reason="覆盖实际",execution="已支付"),
+            Wallet(id="goal",name="储蓄",kind="goal",amount_cents=200000,reason="目标需要",execution="留存")])),
         adjust_runner=lambda _: PlanAdjustment(wants_ratio_pct=20))
     if phase == "start":
         result = agent.plan("persist")
     else:
         result = agent.plan("persist", resume={"action":"edit","message":"可选支出改为20%"})
-        assert result.awaiting_confirmation and result.validation.ok and result.plan.budget.wants_cents == 200000, result
+        assert result.awaiting_confirmation and result.validation.ok and result.plan.budget.wants_cents == 500000, result
         assert agent.context.inputs.profile.income_cents == 1000000
         result = agent.plan("persist", resume={"action":"confirm"})
 else:

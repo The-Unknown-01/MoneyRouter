@@ -39,6 +39,9 @@ FALLBACK = "fallback"
 
 # 状态里存的是领域模型，需显式允许反序列化（否则未来版本会被拦下）
 ALLOWED_MSGPACK_MODULES: list[tuple[str, ...]] = [
+    ("moneyrouter_agent.domain.month", "WalletExecution"),
+    ("moneyrouter_agent.domain.month", "PaymentObligation"),
+    ("moneyrouter_agent.domain.month", "LifeEvent"),
     ("moneyrouter_agent.domain.month", "MonthSnapshot"),
     ("moneyrouter_agent.domain.month", "MonthResult"),
     ("moneyrouter_agent.domain.month", "CategorySpend"),

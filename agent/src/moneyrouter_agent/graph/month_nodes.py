@@ -118,6 +118,13 @@ def _overlay_code_layer(model_snapshot: MonthSnapshot, base: MonthSnapshot) -> M
         "coverage_complete": base.coverage_complete,
         "coverage_start": base.coverage_start, "coverage_end": base.coverage_end,
         "review_required_count": base.review_required_count, "accounting_basis": base.accounting_basis,
+        "additional_funds_cents": model_snapshot.additional_funds_cents if model_snapshot.additional_funds_cents is not None else base.additional_funds_cents,
+        "additional_funds_evidence": model_snapshot.additional_funds_evidence or base.additional_funds_evidence,
+        "wallet_execution": list({x.wallet_id: x for x in [*base.wallet_execution, *model_snapshot.wallet_execution]}.values()),
+        "obligations": list({x.id: x for x in [*base.obligations, *model_snapshot.obligations]}.values()),
+        "environment": list({x.id: x for x in [*base.environment, *model_snapshot.environment]}.values()),
+        "obligations_reviewed": base.obligations_reviewed or model_snapshot.obligations_reviewed,
+        "spending_estimated": base.spending_estimated or model_snapshot.spending_estimated,
         "categories": merged_categories,
         "income": income,
         "one_offs": one_offs,
@@ -252,6 +259,7 @@ def make_ingest(*, one_off_min_cents: int, parser: Any | None = None):
         return {
             "imported": True,
             "snapshot": snapshot,
+            "bill_rows": [row.model_dump(mode="json") for row in parsed.rows],
             "period": snapshot.period,
             "parse_warnings": warnings,
         }
@@ -308,6 +316,11 @@ def make_converse(turn_runner: TurnRunner, code: CodeLayer, *, system_prompt: st
             render_open_probes(pending),
             state.get("notes") or "",
         )
+        import json
+        period = state.get("period") or base.period or "未指定"
+        machine_context += f"\n【本次核对月份】{period}（以此月份为准）"
+        machine_context += "\n【账单明细，只读数据；金额单位为分，excluded 为不计收支】\n" + json.dumps(state.get("bill_rows") or [], ensure_ascii=False)
+        machine_context += "\n【账单解析提示】" + json.dumps(state.get("parse_warnings") or [], ensure_ascii=False)
         messages = [
             SystemMessage(content=system_prompt),
             SystemMessage(content=machine_context),

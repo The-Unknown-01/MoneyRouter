@@ -176,7 +176,7 @@ class Service:
             # Domain models are explicitly trusted application classes.
             import importlib, inspect
             allowed = []
-            for module in ("profile", "month", "probe", "plan", "experience", "summary", "profile_delta", "finance"):
+            for module in ("profile", "month", "probe", "wallet", "plan", "experience", "summary", "profile_delta", "finance"):
                 allowed.extend((v.__module__, v.__name__) for _, v in inspect.getmembers(importlib.import_module(f"moneyrouter_agent.domain.{module}"), inspect.isclass) if issubclass(v, BaseModel))
             allowed.append(("moneyrouter_agent.history", "MonthRecord"))
             saver = SqliteSaver(connection, serde=JsonPlusSerializer(allowed_msgpack_modules=allowed))
@@ -184,7 +184,9 @@ class Service:
             if kind == "profile":
                 agent = ProfileAgent(settings=service_settings(), checkpointer=saver)
             elif kind == "month":
-                agent = MonthAgent(settings=service_settings(), checkpointer=saver, history_store=history)
+                agent = MonthAgent(settings=service_settings(), checkpointer=saver, history_store=history,
+                    profile_context={"profile": self.get(user, "profile"), "existing_plan": self.get(user, "confirmed_plan", thread.split(":")[2])},
+                    budget={w["category"]: w["amount_cents"] for w in (self.get(user, "confirmed_plan", thread.split(":")[2], {}) or {}).get("wallets", []) if w["kind"] == "expense"})
             elif kind == "plan":
                 agent = PlanAgent(settings=service_settings(), checkpointer=saver)
             else:
@@ -198,7 +200,7 @@ class Service:
         if c.kind == "profile":
             revision = self.get(c.user_id, "profile_generation", default=0)
         generation = self.get(c.user_id, "plan_generation", c.period, 0) if c.kind == "plan" else 0
-        return f"{c.user_id}:{c.kind}:{c.period}:{revision}:{generation}"
+        return f"{c.user_id}:{c.kind}:{c.period}:{revision}:{generation}" + (":wallet-v2" if c.kind == "plan" else "")
 
     def execute(self, c):
         user, kind = c.user_id, c.kind
@@ -289,24 +291,29 @@ class Service:
         unchanged_plan = kind == "plan" and result.error and result.validation and result.validation.ok and (result.awaiting_confirmation or result.confirmed)
         data = public(result)
         if result.degraded:
-            data["service_notice"] = "智能服务暂时降级，已有事实和规则计算仍然保留。"
+            data["service_notice"] = "方案暂未生成，输入与已有正式计划保留，请稍后重试。" if kind == "plan" else "智能服务暂时降级，已有事实仍然保留。"
         if unchanged_plan:
-            data["service_notice"] = "修改意见暂时未能解析，已保留原有规则方案。请核对后确认，或稍后重试修改。"
+            data["service_notice"] = "修改意见暂时未能解析，已保留原有已校验方案。请核对后确认，或稍后重试修改。"
         if kind in {"profile", "month", "plan"}:
             agent = self.agent(user, kind, thread)
             from langchain_core.messages import HumanMessage, AIMessage
+            from ..prompts.month import OPENING_USER_TURN as MONTH_OPENING
             data["messages"] = [{"role": "user" if isinstance(m, HumanMessage) else "assistant", "content": str(m.content)}
-                for m in agent.graph.get_state(agent._config(thread)).values.get("messages", []) if isinstance(m, (HumanMessage, AIMessage))][-200:]
+                for m in agent.graph.get_state(agent._config(thread)).values.get("messages", []) if isinstance(m, (HumanMessage, AIMessage))
+                and not (kind == "month" and isinstance(m, HumanMessage) and m.content == MONTH_OPENING)][-200:]
         self.put(user, f"{kind}_result", data, "" if kind == "profile" else c.period)
         if kind == "month":
             self.put(user, "month_draft_revision", self.revision(user), c.period)
         if kind == "plan":
+            if data.get("clarification_target") == "month":
+                self.put(user, "month_handoff", data.get("reply", ""), c.period)
             self.put(user, "plan_draft_revision", self.revision(user), c.period)
         if kind == "profile" and result.confirmed:
             self.put(user, "profile", result.final_profile.model_dump())
             if not already_confirmed:
                 self.invalidate(user)
         elif kind == "month" and result.confirmed:
+            self.put(user, "month_handoff", "", c.period)
             self.put(user, "month_revision", self.revision(user), c.period)
         elif kind == "plan" and result.confirmed:
             if not result.validation or not result.validation.ok:
@@ -331,7 +338,7 @@ class Service:
         from ..config import Settings
         if service_settings().degraded:
             data = {"briefing": FinanceBriefing(as_of=datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat(), period=period,
-                analysis={"headline": "金融信息暂不可用，本次采用保守规则，不提供市场预测。"}, degraded=True).model_dump(mode="json")}
+                analysis={"headline": "金融信息暂不可用；不提供市场预测，不以默认规则替代 Agent 分配。"}, degraded=True).model_dump(mode="json")}
         else:
             if self.finance is None:
                 self.finance = FinanceAgent(settings=service_settings())
@@ -421,6 +428,8 @@ class Service:
                 "categories": list(SPEND_CATEGORIES), "history_periods": history.list_periods(),
                 "profile": self.get(user, "profile"), "profile_result": self.get(user, "profile_result", default={}),
                 "versions": self.get(user, "versions", period, []),
+                "confirmed_plan": self.get(user, "confirmed_plan", period),
+                "month_handoff": self.get(user, "month_handoff", period, ""),
                 "stale": bool(self.get(user, "plan_result", period)) and self.get(user, "plan_draft_revision", period, self.get(user, "plan_revision", period)) != self.revision(user),
                 "month_current": self.get(user, "month_revision", period) == self.revision(user)}
             data["month_draft_stale"] = bool(self.get(user, "month_result", period)) and self.get(user, "month_draft_revision", period) != self.revision(user)

@@ -172,6 +172,7 @@ class PlanResult(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    clarification_target: str = ""
     thread_id: str
     reply: str = ""
     plan: Plan | None = Field(default=None, description="当前方案（含金额、风险、配置与叙述）。")

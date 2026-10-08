@@ -20,10 +20,11 @@ from langchain_core.messages import AIMessage
 from moneyrouter_agent.agent import ProfileAgent
 from moneyrouter_agent.config import Settings, MarketDataSettings, SummarySettings
 from moneyrouter_agent.domain.finance import AnalysisDraft, Reflection, SearchPlan, PlannedQuery
-from moneyrouter_agent.domain.month import MonthSnapshot, MonthResult
+from moneyrouter_agent.domain.month import IncomeFact, MonthSnapshot, MonthResult
 from moneyrouter_agent.domain.month_turn import MonthTurnDecision
 from moneyrouter_agent.domain.plan import PlanInputs, validate_plan
 from moneyrouter_agent.domain.plan_turn import PlanTurnDecision, PlanAdjustment
+from moneyrouter_agent.domain.wallet import Wallet, WalletProposal
 from moneyrouter_agent.domain.profile import Profile, ProfileResult
 from moneyrouter_agent.domain.profile_delta import ProfileFieldUpdate
 from moneyrouter_agent.domain.summary import SummaryDraft, LessonDraft, EventDraft
@@ -177,7 +178,7 @@ def run(output: Path, *, real: bool = False, alipay: Path | None = None, wechat:
         history = JsonMonthHistoryStore(str(output / "months"))
         def month(period, wants, message):
             agent = MonthAgent(settings=settings, history_store=history, **({} if real else {
-                "turn_runner": Sequence(MonthTurnDecision(reply="情况已了解。", snapshot=MonthSnapshot(period=period),
+                "turn_runner": Sequence(MonthTurnDecision(reply="情况已了解。", snapshot=MonthSnapshot(period=period, obligations_reviewed=True),
                                                           notes=message, ready_to_finalize=True)),
                 "finalize_runner": Sequence(MonthResult(articulation=message)),
             }))
@@ -198,10 +199,18 @@ def run(output: Path, *, real: bool = False, alipay: Path | None = None, wechat:
 
         previous = month("2026-08", 3000, "八月账单完整，结余4000元留作应急金，没有已有投资，没有漏记。")
         def plan(inputs, label, *, edit=False):
+            def candidate(messages):
+                # Explicit scripted decisions for the smoke scenario, not a production allocation rule.
+                shopping = 220000 if edit else 200000
+                wallets = [Wallet(id="home", name="居住", kind="expense", category="居住", amount_cents=300000,
+                    reason="覆盖本月义务", execution="按时支付"),
+                    Wallet(id="shopping", name="购物", kind="expense", category="购物", amount_cents=shopping,
+                    reason="结合已确认经验自主安排", execution="按剩余周数核对"),
+                    Wallet(id="goal", name="首付储蓄", kind="goal", amount_cents=1000000-300000-shopping,
+                    reason="推进用户目标", execution="单独留存")]
+                return PlanTurnDecision(status="finalize", reply="请核对方案", proposal=WalletProposal(headline="本月钱包安排", wallets=wallets))
             agent = PlanAgent(settings=settings, inputs=inputs, **({} if real else {
-                "agent_runner": Sequence(AIMessage(content="", tool_calls=[{"name": "summarize_cashflow", "args": {}, "id": "cash", "type": "tool_call"}]), AIMessage(content="数据足够。")),
-                "decide_runner": Sequence(PlanTurnDecision(status="finalize", reply="请核对方案。", headline="预算方案")),
-                "adjust_runner": Sequence(PlanAdjustment(wants_ratio_pct=20, notes="收紧可选支出")),
+                "agent_runner": lambda messages: AIMessage(content="事实已核对"), "decide_runner": candidate,
             }))
             value = agent.plan(label)
             for _ in range(3):
@@ -216,15 +225,15 @@ def run(output: Path, *, real: bool = False, alipay: Path | None = None, wechat:
                 value = agent.plan(label, resume={"action": "edit", "message": "把可选支出上限改为收入的20%，其他不变。"})
                 stage(label + "-edited", value)
                 clean(value)
-                assert value.validation.ok and value.plan.budget.wants_ratio_pct <= 20
+                assert value.validation.ok and value.plan.schema_version == 2
             value = agent.plan(label, resume={"action": "confirm"})
             stage(label + "-confirmed", value)
             clean(value)
             assert value.confirmed and value.validation.ok
-            assert value.plan.narrative == render_plan_narrative(value.plan)
+            assert value.plan.wallets and value.plan.narrative
             return value.plan
 
-        initial_inputs = PlanInputs(profile=profile, briefing=finance.briefing, snapshot=previous, period="2026-09", debt_payment_cents=0)
+        initial_inputs = PlanInputs(profile=profile, briefing=finance.briefing, snapshot=MonthSnapshot(period="2026-09", income=IncomeFact(amount_cents=1000000), obligations_reviewed=True), period="2026-09", debt_payment_cents=0)
         initial_plan = plan(initial_inputs, "04-september-plan", edit=True)
         current = month("2026-09", 5000, MONTH_TEXT)
         stores = dict(history_store=history, experience_store=JsonExperiencePackStore(str(output / "experience"), user="smoke"),
@@ -252,14 +261,12 @@ def run(output: Path, *, real: bool = False, alipay: Path | None = None, wechat:
         pack = reader.load_pack()
         assert pack and any(item.kind == "wants_down" for item in pack.lessons)
         assert profile.income_stable is True and effective.income_stable is False, "Profile event did not feed back"
-        next_inputs = PlanInputs(profile=effective, briefing=finance.briefing, snapshot=current, history=[previous],
+        next_inputs = PlanInputs(profile=effective, briefing=finance.briefing, snapshot=MonthSnapshot(period="2026-10", income=IncomeFact(amount_cents=1000000), obligations_reviewed=True), history=[previous],
                                  period="2026-10", experience=pack, debt_payment_cents=0)
         next_plan = plan(next_inputs, "07-october-plan")
         assert validate_plan(next_plan, next_inputs).ok
-        assert next_plan.lessons_applied and next_plan.budget.wants_ratio_pct < 30
-        assert next_plan.reserve.months == 6
+        assert next_plan.input_facts["experience"]
         assert next_plan.budget.wants_cents < initial_plan.budget.wants_cents
-        assert "收入不稳定" in next_plan.reserve.basis or "方案策略" in next_plan.reserve.basis
         report["comparison"] = {"september_wants_cents": initial_plan.budget.wants_cents,
                                 "october_wants_cents": next_plan.budget.wants_cents,
                                 "october_wants_ratio_pct": next_plan.budget.wants_ratio_pct,

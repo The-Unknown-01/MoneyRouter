@@ -26,6 +26,7 @@ class MonthState(TypedDict, total=False):
     # 输入
     period: str
     bill_text: str | None
+    bill_rows: list[dict]
     imported: bool
     parse_warnings: list[str]
     # 本月实况（代码层 + 口述层合并后）

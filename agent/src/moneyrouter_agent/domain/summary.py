@@ -86,6 +86,7 @@ class PlanActualDiff(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="对账月份 YYYY-MM。")
+    insights: dict = Field(default_factory=dict, description="可视化就绪：月度比较、钱包执行、目标与有证据的成果")
     plan_available: bool = Field(default=False, description="是否拿到了当月方案；缺则经验只限不依赖计划的类型。")
     plan_period: str = Field(default="", description="注入方案所属的期间，用于核对是不是同一个月。")
     layers: list[LayerDiff] = Field(default_factory=list, description="同口径可比的各层偏差，代码算。")
@@ -167,6 +168,7 @@ class MonthlySummary(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="复盘月份 YYYY-MM。")
+    insights: dict = Field(default_factory=dict)
     generated_at: str = Field(default="", description="生成日期 YYYY-MM-DD，代码填。")
     headline: str = Field(default="", description="一句话结论。")
     sections: list[str] = Field(default_factory=list, description="复盘要点。")
@@ -209,6 +211,8 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
         diff.notes.append(f"注入的方案属于 {diff.plan_period}，与本期的 {target} 不是同一个月，已排除该方案。")
         plan = None
 
+    from .summary_insights import build_insights
+    diff.insights = build_insights(snapshot, plan)
     actual_by_category = _category_totals(snapshot)
     necessary_actual = sum(
         amount for category, amount in actual_by_category.items() if category in NECESSARY_CATEGORIES
@@ -246,7 +250,7 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
             _layer("income", budget.income_cents, income_actual),
             _layer("necessary", budget.necessary_cents, necessary_actual),
             _layer("wants", budget.wants_cents, optional_actual),
-            _layer("savings", budget.savings_cents, snapshot.balance_cents),
+            _layer("savings", budget.savings_cents - (plan.funding.get("additional_funds_cents", 0) if getattr(plan, "schema_version", 1) == 2 else 0), snapshot.balance_cents),
         ]
         growth_planned = next(
             (slice_.amount_cents for slice_ in plan.allocation.recommended if slice_.category == "增长配置"),
@@ -281,6 +285,8 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
             for k, v in (plan.strategy.category_cap_cents or {}).items()
             if v is not None
         }
+    if plan is not None and getattr(plan, "schema_version", 1) == 2:
+        planned_by_category = {w["category"]: w["amount_cents"] for w in plan.wallets if w["kind"] == "expense"}
     if not planned_by_category:
         planned_by_category = {
             baseline.category: baseline.amount_cents

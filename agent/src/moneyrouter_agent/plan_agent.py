@@ -12,10 +12,7 @@
 输入（画像 / 金融简报 / 账单快照 / 经验包）由调用方**进程内注入**，不走 HTTP；
 ``plan`` 承载多轮对话与确认：停在确认环节时用 ``resume={"action": ...}`` 恢复。
 
-两条降级线互相独立：
-
-- 模型不可用 → 仍由代码跑完七步、用模板叙述，标为降级；
-- 输入有缺口 → 逐项进 ``warnings`` / ``data_quality``，缺失不补 0、不估算。
+模型不可用或候选无法校验时不生成默认分配。旧正式方案仍保留；新图使用钱包 v2 契约。
 """
 
 from __future__ import annotations
@@ -30,12 +27,12 @@ from .config import PlanSettings, Settings
 from .checkpoints import context as checkpoint_context
 from .domain.plan import CashflowSummary, Plan, PlanContext, PlanInputs, ValidationReport
 from .domain.plan_turn import PlanAdjustment, PlanTurnDecision
-from .graph.plan_build import build_plan_graph
+from .graph.wallet_build import build_wallet_graph as build_plan_graph
 from .model.deepseek import StructuredCall, build_chat_model, make_schema_runner
 from .prompts.plan import OPENING_USER_TURN
 from .tools.plan_tools import make_plan_tools
 
-DEFAULT_RECURSION_LIMIT = 25
+DEFAULT_RECURSION_LIMIT = 40
 
 
 def _unavailable_runner(messages: list[Any]) -> Any:
@@ -180,6 +177,7 @@ class PlanAgent:
         cashflow = values.get("cashflow")
         return PlanResult(
             thread_id=thread_id,
+            clarification_target=values.get("clarification_target") or "",
             reply=reply,
             plan=Plan.model_validate(plan.model_dump()) if isinstance(plan, Plan) else None,
             validation=(

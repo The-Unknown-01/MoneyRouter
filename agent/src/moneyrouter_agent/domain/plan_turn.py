@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .wallet import WalletProposal
+
 RiskLevel = Literal["低", "中", "高"]
 
 
@@ -30,16 +32,12 @@ class PlanTurnDecision(BaseModel):
     missing: list[str] = Field(
         default_factory=list, description="还缺哪些关键资料（如收入、债务还款、可承受风险）。"
     )
-    wants_ratio_pct: float | None = Field(
-        default=None, description="应用经验之前的基础可选支出上限占收入的比例（%）。"
-        "工具返回的比例已应用经验，不能将它再填成基础比例。无明确的新约束就留空，系统会用默认值。"
-    )
-    risk_level_override: RiskLevel | None = Field(
-        default=None, description="若用户明确表达了风险偏好，可填；最终只会更保守，不会更高。"
-    )
-    reserve_months: int | None = Field(
-        default=None, description="应急预备金的目标月数，只填 3 或 6；不确定就留空。"
-    )
+    proposal: WalletProposal | None = Field(default=None, description="finalize 必须给完整自主钱包方案")
+    clarification_target: Literal["month"] = "month"
+    # Read compatibility for older test/archived decisions; v2 ignores these fields.
+    wants_ratio_pct: float | None = Field(default=None, description="历史兼容字段，v2 不使用，无默认预算比例")
+    risk_level_override: RiskLevel | None = Field(default=None, description="历史兼容字段，v2 不使用固定风险配比")
+    reserve_months: int | None = Field(default=None, description="历史兼容字段，v2 不使用固定预备金月数")
     headline: str = Field(default="", description="status=finalize 时的一句话总述。")
     sections: list[str] = Field(
         default_factory=list,

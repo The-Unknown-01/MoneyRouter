@@ -57,6 +57,12 @@ def _student_draft() -> ProfileDraft:
         occupation="大四学生",
         income_cents=150_000,
         income_basis="每月生活费",
+        outcome_cents=130_000,
+        feature="家庭提供生活费",
+        income_stable=True,
+        family_load=False,
+        debt_cents=0,
+        reserve_cents=500_000,
         horizon_months=36,
         max_loss_pct=0,  # 完全不接受亏损——必须是合法值
         goal="毕业后租房押金",

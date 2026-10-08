@@ -27,6 +27,24 @@ BILL = "日期,分类,金额,摘要\n2026-09-01,餐饮,-2500.50,聚餐\n2026-09-
 DOSSIER = sample_dossier(PERIOD)
 
 
+def test_bill_details_and_selected_period_reach_model_on_every_turn():
+    runner = ScriptedTurnRunner([MonthTurnDecision(reply="预计收入多少？"),
+                                 MonthTurnDecision(reply="还有待支付费用吗？")])
+    agent = MonthAgent(settings=Settings(api_key="fake-key"),
+                       month_settings=MonthSettings(), turn_runner=runner,
+                       finalize_runner=ScriptedFinalizeRunner(MonthResult()),
+                       history_store=None)
+    agent.turn("bill-context", bill=BILL, period=PERIOD)
+    agent.turn("bill-context", "预计收入八千")
+    for messages in runner.calls:
+        context = str(messages[1].content)
+        assert PERIOD in context
+        assert "2026-09-01" in context
+        assert "聚餐" in context
+        assert "250050" in context
+
+
+
 class ScriptedTurnRunner:
     def __init__(self, decisions: list[MonthTurnDecision]) -> None:
         self._decisions = list(decisions)

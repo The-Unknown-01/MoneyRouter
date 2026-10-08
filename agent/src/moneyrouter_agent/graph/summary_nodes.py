@@ -284,6 +284,7 @@ def make_compose(code: SummaryCodeLayer):
             headline=(draft.headline or "").strip() or render_headline(diff),
             sections=sections or render_sections(diff),
             diff=diff,
+            insights=diff.insights,
             lessons=collect_lesson_statements(filled),
             notes=draft.notes,
             sources=code.sources(),

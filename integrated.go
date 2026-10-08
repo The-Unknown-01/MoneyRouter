@@ -98,14 +98,6 @@ func (a *app) integratedNextStep(id int64) (string, error) {
 	if s["profile"] == nil {
 		return "/profile", nil
 	}
-	var count int
-	err = a.db.QueryRow("SELECT count(*) FROM transactions WHERE user_id=?", id).Scan(&count)
-	if err != nil {
-		return "", err
-	}
-	if count == 0 {
-		return "/ledger", nil
-	}
 	if !yes(s["month_current"]) {
 		return "/month", nil
 	}
@@ -154,6 +146,9 @@ type webData struct {
 	Rows                                                                                                                    []transaction
 	Categories, Warnings, Periods                                                                                           []string
 	Fields                                                                                                                  []uiField
+	WalletChanges                                                                                                           []uiStat
+	Wallets                                                                                                                 []map[string]any
+	ProfileConcepts                                                                                                         []uiStat
 	Stats, Lines                                                                                                            []uiStat
 	Messages                                                                                                                []message
 	Awaiting, Confirmed, Stale, MonthCurrent, HasProfile, HasPlan, HasSummary                                               bool
@@ -161,7 +156,7 @@ type webData struct {
 
 var webTitles = map[string]string{"profile": "了解你", "ledger": "建立账本", "month": "核对本月实况", "plan": "你的方案", "review": "月度复盘", "chat": "方案答疑"}
 var profileLabels = []uiField{
-	{"occupation", "职业", "", "text"}, {"income_basis", "收入口径", "", "text"}, {"income_cents", "每月收入 / 生活费（元）", "", "money"}, {"income_stable", "收入是否稳定", "", "bool"}, {"family_load", "是否承担家庭负担", "", "bool"}, {"debt_cents", "负债总额（元）", "", "money"}, {"reserve_cents", "现有应急储蓄（元）", "", "money"}, {"horizon_months", "预计使用期限（月）", "", "number"}, {"max_loss_pct", "可承受亏损（%）", "", "number"}, {"experience", "投资经验", "", "experience"}, {"goal", "你的目标", "", "text"},
+	{"outcome_cents", "通常月开销（元）", "", "money"}, {"feature", "生活情况与家庭支持", "", "text"}, {"occupation", "职业", "", "text"}, {"income_basis", "收入口径", "", "text"}, {"income_cents", "每月收入 / 生活费（元）", "", "money"}, {"income_stable", "收入是否稳定", "", "bool"}, {"family_load", "是否承担家庭负担", "", "bool"}, {"debt_cents", "负债总额（元）", "", "money"}, {"reserve_cents", "现有应急储蓄（元）", "", "money"}, {"horizon_months", "预计使用期限（月）", "", "number"}, {"max_loss_pct", "可承受亏损（%）", "", "number"}, {"experience", "投资经验", "", "experience"}, {"goal", "你的目标", "", "text"}, {"notes", "备注 · 补充信息", "", "text"},
 }
 
 func (a *app) integratedPage(w http.ResponseWriter, r *http.Request) {
@@ -213,6 +208,7 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 		if len(p) == 0 {
 			p = obj(s["profile"])
 		}
+		d.ProfileConcepts = []uiStat{{"Income · 常规收入", displayCents(p["income_cents"])}, {"Outcome · 通常开销", displayCents(p["outcome_cents"])}, {"Feature · 生活与目标", strings.TrimSpace(str(p["feature"]) + " " + str(p["goal"]))}}
 		for _, field := range profileLabels {
 			v := p[field.Key]
 			field.Value = str(v)
@@ -279,6 +275,9 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 		charts["categories"] = values
 	}
 	if kind == "month" {
+		if question := str(s["month_handoff"]); question != "" {
+			d.Warnings = append(d.Warnings, "方案需要补充核对："+question)
+		}
 		snapshot := obj(d.Result["snapshot"])
 		d.Stats = []uiStat{{"收入", displayCents(obj(snapshot["income"])["amount_cents"])}, {"支出", displayCents(snapshot["spend_total_cents"])}, {"结余", displayCents(snapshot["balance_cents"])}}
 		d.Narrative = str(d.Result["articulation"])
@@ -290,6 +289,12 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 	}
 	if kind == "plan" {
 		p := obj(d.Result["plan"])
+		if len(p) == 0 {
+			p = obj(s["confirmed_plan"])
+			if len(p) > 0 {
+				d.Warnings = append(d.Warnings, "新方案尚未完成，下方展示已有正式计划。")
+			}
+		}
 		d.HasPlan = len(p) > 0
 		if !d.HasPlan {
 			d.Stale = false
@@ -303,6 +308,7 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 				}
 			}
 		}
+		d.HasPlan = len(p) > 0
 		budget := obj(p["budget"])
 		reserve := obj(p["reserve"])
 		d.Headline = str(p["headline"])
@@ -315,6 +321,41 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 		charts["budget"] = budget
 		charts["allocation"] = obj(p["allocation"])["recommended"]
 		charts["reserve"] = reserve
+		d.Wallets = nil
+		for _, value := range arr(p["wallets"]) {
+			d.Wallets = append(d.Wallets, obj(value))
+		}
+		charts["wallets"] = p["wallets"]
+		previous := map[string]int64{}
+		versions := arr(s["versions"])
+		if len(versions) > 0 {
+			last := obj(obj(versions[len(versions)-1])["plan"])
+			for _, value := range arr(last["wallets"]) {
+				row := obj(value)
+				previous[str(row["id"])] = num(row["amount_cents"])
+			}
+			if !d.Awaiting && len(versions) > 1 {
+				previous = map[string]int64{}
+				for _, value := range arr(obj(obj(versions[len(versions)-2])["plan"])["wallets"]) {
+					row := obj(value)
+					previous[str(row["id"])] = num(row["amount_cents"])
+				}
+			}
+		}
+		for _, row := range d.Wallets {
+			old, exists := previous[str(row["id"])]
+			if exists && old != num(row["amount_cents"]) {
+				d.WalletChanges = append(d.WalletChanges, uiStat{str(row["name"]), formatMoney(old) + " → " + displayCents(row["amount_cents"])})
+			}
+		}
+
+		if num(p["schema_version"]) == 2 {
+			d.Stats = []uiStat{{"本月可用资金", displayCents(obj(p["funding"])["total_cents"])}, {"消费预算", formatMoney(num(budget["necessary_cents"]) + num(budget["wants_cents"]) + num(budget["debt_cents"]))}, {"储蓄与投资", displayCents(budget["savings_cents"])}}
+			d.Lines = nil
+		}
+		if str(d.Result["clarification_target"]) == "month" {
+			d.Warnings = append(d.Warnings, "请在本月实况中补充助手提出的问题，确认后重新生成。")
+		}
 		for _, v := range arr(p["warnings"]) {
 			d.Warnings = append(d.Warnings, str(v))
 		}
@@ -448,8 +489,8 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	if kind == "month" && action == "" {
 		items, e := a.allMonthTransactions(u.ID, period)
-		if e != nil || len(items) == 0 {
-			a.webError(w, r, "请先为这个月份录入账单。")
+		if e != nil {
+			a.webError(w, r, "本月账单读取失败，请重试。")
 			return
 		}
 		doc := map[string]any{"period": period}
@@ -473,7 +514,10 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if kind == "month" && action == "finish" {
-		for _, key := range []string{"non_invested_cents", "invested_cents"} {
+		if r.FormValue("obligations_reviewed") == "true" {
+			payload["obligations_reviewed"] = true
+		}
+		for _, key := range []string{"income_cents", "non_invested_cents", "invested_cents"} {
 			if value := r.FormValue(key); value != "" {
 				n, err := parseMoney(value)
 				if err != nil {
@@ -557,6 +601,9 @@ func (a *app) agentPoll(w http.ResponseWriter, r *http.Request) {
 		a.webError(w, r, str(j["error"]))
 	default:
 		path := "/" + kindPage(kind) + "?period=" + period
+		if kind == "plan" && str(obj(j["result"])["clarification_target"]) == "month" {
+			path = "/month?period=" + period
+		}
 		if kind == "clean" {
 			path += "&preview=" + id
 		}

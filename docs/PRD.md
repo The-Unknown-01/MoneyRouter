@@ -1,3 +1,5 @@
+> 当前融合实现以 [MERGE_IMPLEMENTATION.md](MERGE_IMPLEMENTATION.md) 为准：LangGraph Agent 自主提出钱包分配，代码只计算校验；以下固定比例与规则降级属于历史约定。
+
 # 当前实现约定（2026-10-08）
 
 采用手机优先 Web：Go 模板 + HTMX + daisyUI + ECharts，浏览器只访问 Go，Python 通过内部 HTTP/JSON 提供五类 Agent、账单清洗和答疑。Python Pydantic 模型与语义为标准；确认画像、本月实况、方案和复盘须显式用户确认。未知信息保持 null，整数分计算，转账排除收支。金融信息作为方案依据，不增加独立必经步骤。目标收益不作为保证或预测。

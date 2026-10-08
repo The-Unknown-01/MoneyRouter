@@ -1,4 +1,4 @@
-"""方案领域模型 + 七步可复算算法（**全部由代码执行，模型没有写入通路**）。
+"""历史方案兼容模型 + 七步可复算算法（**全部由代码执行，模型没有写入通路**）。
 
 流程与规则取自已批准的 WORKPLAN §4.1/§4.2：
 
@@ -268,10 +268,15 @@ class ValidationReport(BaseModel):
 
 
 class Plan(BaseModel):
-    """一份规范方案。所有金额字段均由代码写入，模型只负责 ``headline`` / ``narrative``。"""
+    """版本化方案：v1 是历史规则结果；v2 的钱包金额由 Agent 提出，代码计算汇总并校验。"""
 
     model_config = ConfigDict(extra="ignore")
 
+    schema_version: int = 1
+    wallets: list[dict] = Field(default_factory=list)
+    input_facts: dict = Field(default_factory=dict)
+    funding: dict = Field(default_factory=dict)
+    stress_loss_pct: float | None = None
     period: str = ""
     version: int = Field(default=1, description="方案版本号，代码递增。")
     headline: str = Field(default="", description="一句话结论（模型写）。")
@@ -807,6 +812,21 @@ def _mismatch(issues: list[ValidationIssue], name: str, got: int, want: int) -> 
 
 
 def validate_plan(plan: Plan, inputs: PlanInputs) -> ValidationReport:
+    if plan.schema_version == 2:
+        from .wallet import Wallet, WalletProposal, validate_wallets, compose_wallet_plan
+        try:
+            candidate = WalletProposal(headline=plan.headline, wallets=[Wallet.model_validate({
+                k: v for k, v in row.items() if k in Wallet.model_fields}) for row in plan.wallets], caveats=plan.warnings)
+            report = validate_wallets(candidate, inputs)
+            if report["ok"]:
+                rebuilt = compose_wallet_plan(candidate, inputs)
+                if (plan.budget.model_dump() != rebuilt.budget.model_dump() or plan.wallets != rebuilt.wallets
+                        or plan.allocation.model_dump() != rebuilt.allocation.model_dump() or plan.funding != rebuilt.funding):
+                    report["errors"].append("展示汇总与钱包金额不一致")
+            return ValidationReport(ok=not report["errors"], issues=[ValidationIssue(code="wallet_validation", message=e) for e in report["errors"]])
+        except (ValueError, TypeError, KeyError) as exc:
+            return ValidationReport(ok=False, issues=[ValidationIssue(code="wallet_schema", message=str(exc))])
+
     """第 7 步：独立复核——按方案自身的策略重算一遍，逐项对账并检查硬约束。"""
     ref = _build_with_effective_strategy(inputs, plan.strategy, apply_lessons(inputs.experience))
     issues: list[ValidationIssue] = []

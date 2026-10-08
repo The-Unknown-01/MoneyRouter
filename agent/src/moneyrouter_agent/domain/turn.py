@@ -35,6 +35,14 @@ class TurnDecision(BaseModel):
             "不要逐句转录对话，也不要复述你是怎么提问的；跨轮累积。"
         ),
     )
+    refused_fields: dict[str, str] = Field(
+        default_factory=dict,
+        description="用户明确拒绝回答的字段名到拒答原话的映射。原话必须来自用户消息；未回答、不确定、遗漏均不算拒答。全量保留先前拒答。",
+    )
+    pending_questions: list[str] = Field(
+        default_factory=list,
+        description="尚未得到回答、也未被用户明确拒答的问题。一次问多个问题时逐项核对，只移除已回答或明确拒答的项；包含标准字段外的追问。",
+    )
     ready_to_finalize: bool = Field(
         default=False,
         description="你认为现在是否已经可以收尾（够了解这个人了）。",

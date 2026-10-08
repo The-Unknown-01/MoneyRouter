@@ -22,6 +22,9 @@ class PlanState(TypedDict, total=False):
     """方案生成图的状态。除累积字段外一律**覆盖式**（写了就整块替换，没写保留旧值）。"""
 
     messages: Annotated[list[AnyMessage], add_messages]  # 累积 + 自动回放
+    proposal_attempts: int
+    validation_feedback: list[str]
+    clarification_target: str
     period: str
     cashflow: CashflowSummary
     decision: PlanTurnDecision | None

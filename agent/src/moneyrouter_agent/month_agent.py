@@ -93,6 +93,7 @@ class MonthAgent:
         turn_runner: Callable[[list[BaseMessage]], Any] | None = None,
         finalize_runner: Callable[[list[BaseMessage]], Any] | None = None,
         checkpointer: Any | None = None,
+        profile_context: dict | None = None,
         budget: dict[str, int] | None = None,
         history: list[MonthSnapshot] | None = None,
         goal: GoalAlignment | None = None,
@@ -141,6 +142,13 @@ class MonthAgent:
                 else make_schema_runner(self.settings, MonthResult)
             )
 
+        if profile_context:
+            from langchain_core.messages import SystemMessage
+            import json
+            context_message = SystemMessage(content="基础画像仅作背景，不自动认定为本月事实：" + json.dumps(profile_context, ensure_ascii=False))
+            original_turn, original_finalize = turn_runner, finalize_runner
+            turn_runner = lambda messages: original_turn([context_message, *messages])
+            finalize_runner = lambda messages: original_finalize([context_message, *messages])
         self.code = CodeLayer(
             settings=self.month_settings, budget=budget, history=history, goal=goal
         )
@@ -291,7 +299,8 @@ class MonthAgent:
                         return self.snapshot(thread_id)
                     user_message = carried
                 update: dict[str, Any] = {
-                    "messages": [HumanMessage(content=user_message or OPENING_USER_TURN)]
+                    "messages": [HumanMessage(content=user_message or OPENING_USER_TURN)],
+                    "confirmed": False, "final_result": None, "ready_to_finalize": False
                 }
                 existing = dict(self.graph.get_state(config).values or {})
                 if bill is not None and existing.get("period") and period and period != existing["period"]:
@@ -323,6 +332,18 @@ class MonthAgent:
             raise ValueError("会话已经等待核对")
         snapshot = self.snapshot(thread_id).snapshot.model_copy(deep=True)
         values = supplements or {}
+        if values.get("income_cents") is not None:
+            from .domain.month import IncomeFact
+            amount = values["income_cents"]
+            if not isinstance(amount, int) or isinstance(amount, bool) or amount < 0:
+                raise ValueError("收入必须为非负整数分")
+            if snapshot.income and snapshot.income.source == "file" and snapshot.income.amount_cents != amount:
+                raise ValueError("账单收入与手填冲突，请核对账单后更新")
+            snapshot.income = IncomeFact(amount_cents=amount, evidence="用户在核对卡片明确填写", source="stated")
+        if values.get("obligations_reviewed") is not None:
+            if not isinstance(values["obligations_reviewed"], bool):
+                raise ValueError("待支付核对状态无效")
+            snapshot.obligations_reviewed = values["obligations_reviewed"]
         for key in ("non_invested_cents", "invested_cents"):
             if values.get(key) is not None:
                 value = values[key]

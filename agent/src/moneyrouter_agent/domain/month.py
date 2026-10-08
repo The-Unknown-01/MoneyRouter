@@ -306,12 +306,43 @@ class InvestmentSnapshot(BaseModel):
     )
 
 
+class WalletExecution(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    wallet_id: str = Field(min_length=1)
+    amount_cents: int = Field(ge=0, strict=True, description="本月已执行金额，不是待安排金额")
+    evidence: str = Field(min_length=1)
+
+
+class PaymentObligation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, description="稳定标识，同一费用不可重复记录")
+    category: str = Field(description="系统消费分类或债务还款")
+    label: str
+    amount_cents: int = Field(ge=0, strict=True)
+    evidence: str = Field(min_length=1, description="用户明确说明的尚未支付义务")
+
+
+class LifeEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    label: str
+    evidence: str = Field(min_length=1, description="用户确认的假期、实习、旅行等，不能凭日历推测")
+    affected_categories: list[str] = Field(default_factory=list)
+
+
 class MonthSnapshot(BaseModel):
     """本月实况。口述部分由对话更新；文件来源与计算字段由代码维护。"""
 
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="统计期间 YYYY-MM。")
+    additional_funds_cents: int | None = Field(default=None, ge=0, strict=True, description="用户明确允许本月动用的收入外余额，未知不计入；不是全部储备")
+    additional_funds_evidence: str = Field(default="", description="用户明确授权动用该余额的事实依据")
+    wallet_execution: list[WalletExecution] = Field(default_factory=list, description="已执行储蓄或投资，关联既有钱包 id")
+    obligations: list[PaymentObligation] = Field(default_factory=list, description="本月尚未支付的义务，不计入已花 categories")
+    environment: list[LifeEvent] = Field(default_factory=list)
+    spending_estimated: bool = False
+    obligations_reviewed: bool = Field(default=False, description="已与用户核对尚未支付费用；没有费用也需明确核对")
     coverage_complete: bool | None = None
     coverage_start: str = ""
     coverage_end: str = ""

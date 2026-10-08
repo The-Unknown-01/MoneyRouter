@@ -18,6 +18,7 @@
    let option=null;
    const common={animation:!reduced(),animationDuration:260,color:palette,textStyle:{fontFamily:'Segoe UI, Microsoft YaHei, sans-serif',color:'#6f8779'},tooltip:{trigger:'item',valueFormatter:v=>'¥ '+Number(v).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}};
    if(key==='categories'&&data.categories?.length) option={...common,grid:{left:85,right:30,top:10,bottom:25},xAxis:{type:'value',splitLine:{lineStyle:{color:'#edf1ec'}}},yAxis:{type:'category',data:data.categories.map(v=>v.name)},series:[{type:'bar',barMaxWidth:18,itemStyle:{borderRadius:[0,5,5,0]},data:data.categories.map(v=>v.value/100)}]};
+   if(key==='wallets'&&data.wallets?.length)option={...common,legend:{bottom:0,type:'scroll'},series:[{type:'pie',radius:['45%','70%'],center:['50%','42%'],label:{show:false},data:data.wallets.filter(w=>w.amount_cents>0).map(w=>({name:w.name,value:w.amount_cents/100}))}]};
    if(key==='budget'&&data.budget?.income_cents>0){const fields=[['necessary_cents','必要支出'],['debt_cents','债务还款'],['wants_cents','可选支出'],['savings_cents','储蓄']];option={...common,legend:{bottom:0,itemWidth:10,itemHeight:10},grid:{left:8,right:8,top:15,bottom:55},xAxis:{type:'value',show:false},yAxis:{type:'category',show:false,data:['分配']},series:fields.map(([field,name])=>({type:'bar',stack:'budget',name,barWidth:30,data:[data.budget[field]/100]}))};}
    if(key==='allocation'&&data.allocation?.some(v=>v.amount_cents>0))option={...common,legend:{bottom:0},series:[{type:'pie',radius:['52%','72%'],center:['50%','43%'],label:{show:false},data:data.allocation.map(v=>({name:v.category,value:v.amount_cents/100}))}]};
    if(key==='reserve'&&data.reserve?.target_cents>0){option={...common,legend:{bottom:0},grid:{left:8,right:8,top:15,bottom:50},xAxis:{type:'value',show:false},yAxis:{type:'category',show:false,data:['预备金']},series:[{type:'bar',name:'已有预备金',stack:'reserve',barWidth:24,data:[Math.min(data.reserve.existing_cents,data.reserve.target_cents)/100]},{type:'bar',name:'待补足',stack:'reserve',barWidth:24,itemStyle:{color:'#e5eee3'},data:[data.reserve.gap_cents/100]}]};}
@@ -29,6 +30,8 @@
    const observer=new ResizeObserver(()=>chart.resize());observer.observe(element);charts.set(element,{chart,observer});
   });
   document.querySelectorAll('form').forEach(form=>{const saved=drafts.get(location.pathname+'|'+form.getAttribute('action'));if(saved)for(const [name,value] of Object.entries(saved)){const input=form.elements[name];if(input&&input.type!=='file'&&!['csrf','request_id','id'].includes(name))input.value=value;}});
+ const starter=document.querySelector('form[data-auto-start="true"]');
+ if(starter){starter.removeAttribute('data-auto-start');queueMicrotask(()=>{if(starter.isConnected)starter.requestSubmit();});}
  const convo=document.querySelector('#conversation');if(convo)convo.scrollTop=convo.scrollHeight;
  }
  document.addEventListener('input',event=>{const input=event.target;const form=input.closest('form');if(!form||!input.name||input.type==='file')return;const key=location.pathname+'|'+form.getAttribute('action');const saved=drafts.get(key)||{};saved[input.name]=input.value;drafts.set(key,saved);});

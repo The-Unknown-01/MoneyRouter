@@ -16,3 +16,5 @@
 /agent/.venv-web/
 /agent/.tmp/
 /agent/.data/web/
+
+/.test-tmp/

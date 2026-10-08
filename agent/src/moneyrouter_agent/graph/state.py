@@ -23,7 +23,9 @@ class InterviewState(TypedDict, total=False):
     understanding: ProfileDraft
     # 累积的「额外了解」（要点与结论，非对话转录）
     notes: str
-    # 模型对是否可收尾的判断（供观测，不作代码门槛）
+    refused_fields: dict[str, str]
+    pending_questions: list[str]
+    # 模型判断与字段完整性检查共同决定收尾
     ready_to_finalize: bool
     rationale: str
     # 收尾产物
