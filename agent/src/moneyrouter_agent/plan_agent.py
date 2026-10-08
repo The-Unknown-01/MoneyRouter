@@ -26,7 +26,7 @@ from .api.contract import PlanResult
 from .config import PlanSettings, Settings
 from .checkpoints import context as checkpoint_context
 from .domain.plan import CashflowSummary, Plan, PlanContext, PlanInputs, ValidationReport
-from .domain.plan_turn import PlanAdjustment, PlanTurnDecision
+from .domain.plan_turn import PlanAdjustment, PlanTurnDecision, WalletTurnDecision
 from .graph.wallet_build import build_wallet_graph as build_plan_graph
 from .model.deepseek import StructuredCall, build_chat_model, make_schema_runner
 from .prompts.plan import OPENING_USER_TURN
@@ -88,7 +88,7 @@ class PlanAgent:
             decide_runner = (
                 _unavailable_runner
                 if degraded
-                else make_schema_runner(self.settings, PlanTurnDecision)
+                else make_schema_runner(self.settings, WalletTurnDecision)
             )
         if adjust_runner is None:
             adjust_runner = (

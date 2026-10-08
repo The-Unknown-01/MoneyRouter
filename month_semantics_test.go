@@ -40,8 +40,9 @@ func TestMonthSemanticsPages(t *testing.T) {
 	}{
 		{"/plan?period=" + past, []string{past + " 资金方案", "历史回看", "方案月份"}, []string{"生成方案", "本月钱包计划"}},
 		{"/month?period=" + future, []string{future + " 月度核对", "预计整月总收入", "expected_income_cents"}, []string{"name=\"income_cents\"", "整月全部收支"}},
+		{"/forecast?period=" + future, []string{future + " 预计资料", "方案月份 M", "待支付费用", "根据 " + previousPeriod(future)}, []string{"name=\"income_cents\""}},
 		{"/month?period=" + past, []string{past + " 已到账实际收入", "核对月份", "coverage_complete"}, []string{"本月预计收入"}},
-		{"/review?period=" + past, []string{past + " 阶段回顾", "复盘月份", "plan_version", "核对 " + nextPeriod(past) + " 资料"}, []string{"回看这个月"}},
+		{"/review?period=" + past, []string{past + " 阶段回顾", "复盘月份", "plan_version", "核对并确认整月复盘后"}, []string{"回看这个月"}},
 	} {
 		t.Run(c.path, func(t *testing.T) {
 			r := httptest.NewRequest("GET", c.path, nil)

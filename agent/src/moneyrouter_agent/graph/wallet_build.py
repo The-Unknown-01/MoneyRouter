@@ -4,6 +4,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command, interrupt
 from langgraph.prebuilt import ToolNode
+from pydantic import BaseModel
 
 from .plan_state import PlanState
 from .plan_build import default_checkpointer
@@ -20,6 +21,16 @@ def public_reply(content):
     return AIMessage(content=content, additional_kwargs={"public_reply": True})
 
 
+def recent_turn_messages(messages, limit=20):
+    """Keep whole user turns so trimming never leaves an orphan tool response."""
+    starts = [i for i, message in enumerate(messages) if isinstance(message, HumanMessage)]
+    if not starts:
+        return []
+    boundary = max(0, len(messages) - limit)
+    start = next((i for i in starts if i >= boundary), starts[-1])
+    return messages[start:]
+
+
 def build_wallet_graph(*, context, decide_runner, agent_runner=None, tools=None, max_tool_rounds=4, **_):
     graph = StateGraph(PlanState)
 
@@ -34,7 +45,7 @@ def build_wallet_graph(*, context, decide_runner, agent_runner=None, tools=None,
         try:
             result = agent_runner([SystemMessage(content=INSTRUCTION),
                 HumanMessage(content="按需读取事实与来源，可以测试自主候选。随后通过结构化 proposal 提交完整方案。"),
-                *state.get("messages", [])[-20:]])
+                *recent_turn_messages(state.get("messages", []))])
             return {"messages": [result], "tool_rounds": int(state.get("tool_rounds", 0))+1}
         except Exception:
             # Structured decision can still succeed; no rule allocation is synthesized.
@@ -50,13 +61,15 @@ def build_wallet_graph(*, context, decide_runner, agent_runner=None, tools=None,
     def propose(state):
         messages = [SystemMessage(content=INSTRUCTION),
                     HumanMessage(content=json.dumps(planning_facts(context.inputs), ensure_ascii=False)),
-                    *state.get("messages", [])[-20:]]
+                    *recent_turn_messages(state.get("messages", []))]
         if state.get("validation_feedback"):
             messages.append(HumanMessage(content="请修订完整方案：" + json.dumps(state["validation_feedback"], ensure_ascii=False)))
         try:
             result = decide_runner(messages)
             if isinstance(result, StructuredCall):
                 result = result.parsed
+            if isinstance(result, BaseModel) and not isinstance(result, PlanTurnDecision):
+                result = result.model_dump()
             decision = result if isinstance(result, PlanTurnDecision) else PlanTurnDecision.model_validate(result)
         except Exception:
             return {"degraded": True, "error": "方案模型暂不可用，请稍后重试；未生成默认分配。",

@@ -25,8 +25,8 @@ from ..plan_agent import PlanAgent
 from ..summary_agent import SummaryAgent
 from ..domain.profile import Profile
 from ..domain.plan import Plan, PlanInputs
-from ..domain.month import SPEND_CATEGORIES, past_snapshots, review_mode
-from ..periods import business_today, period_context, valid_period
+from ..domain.month import SPEND_CATEGORIES, MonthSnapshot, IncomeFact, PaymentObligation, LifeEvent, past_snapshots, review_mode
+from ..periods import business_today, period_context, valid_period, shift_period
 from ..history import JsonMonthHistoryStore
 from ..summary_store import JsonExperiencePackStore, JsonProfileEventStore, JsonMonthlySummaryStore
 
@@ -42,7 +42,7 @@ def service_settings():
 
 class Command(BaseModel):
     user_id: str = Field(pattern=r"^u[1-9][0-9]*$")
-    kind: str = Field(pattern=r"^(profile|month|finance|plan|summary|chat|clean|manual)$")
+    kind: str = Field(pattern=r"^(profile|month|forecast|finance|plan|summary|chat|clean|manual)$")
     request_id: str = Field(min_length=8, max_length=100)
     period: str = Field(default="", pattern=r"^$|^[0-9]{4}-(0[1-9]|1[0-2])$")
     user_message: str = Field(default="", max_length=2000)
@@ -123,9 +123,14 @@ class Service:
             row = self.db.execute("SELECT value FROM revisions WHERE user=?", (user,)).fetchone()
             return row[0] if row else 0
 
-    def invalidate(self, user):
+    def fact_revision(self, user):
+        return self.get(user, "fact_revision", default=0)
+
+    def invalidate(self, user, *, facts=True):
         with self.lock, self.db:
             self.db.execute("INSERT INTO revisions VALUES(?,1) ON CONFLICT(user) DO UPDATE SET value=value+1", (user,))
+            if facts:
+                self.db.execute("INSERT OR REPLACE INTO artifacts VALUES(?,?,?,?)", (user, "fact_revision", "", json.dumps(self.fact_revision(user) + 1)))
 
     def user_lock(self, user):
         with self.lock:
@@ -216,12 +221,14 @@ class Service:
         revision = self.revision(c.user_id)
         if c.kind == "profile":
             revision = self.get(c.user_id, "profile_generation", default=0)
+        if c.kind == "month":
+            revision = self.fact_revision(c.user_id)
         if c.kind == "summary":
             # Summary confirmation itself invalidates planning inputs. Its own
             # thread must still be recoverable for an idempotent confirmation.
             revision = 0
         generation = self.get(c.user_id, "plan_generation", c.period, 0) if c.kind == "plan" else 0
-        suffix = ":wallet-v2:months-v2" if c.kind == "plan" else ":months-v2" if c.kind in {"month", "summary"} else ""
+        suffix = ":wallet-v2:months-v3:" + c.payload.get("planning_mode", "next_month") if c.kind == "plan" else ":months-v2" if c.kind in {"month", "summary"} else ""
         if c.kind == "summary":
             history, _, _, _ = self.stores(c.user_id)
             dependencies = {"today": business_today().isoformat(), "records": [r.model_dump(mode="json") for r in history.load_records() if r.period <= c.period],
@@ -251,6 +258,21 @@ class Service:
             raise ValueError("历史月份仅供查看和复盘；请选择当前或未来月份生成方案")
         if kind == "summary" and c.period > today.strftime("%Y-%m"):
             raise ValueError("未来月份尚无实际执行情况，不能复盘")
+        if kind == "forecast":
+            return self.forecast(c)
+        if kind == "plan":
+            mode = c.payload.get("planning_mode", "next_month")
+            if mode == "next_month":
+                forecast = self.get(user, "forecast_result", c.period, {})
+                if not forecast.get("confirmed") or forecast.get("revision") != self.revision(user):
+                    raise ValueError("请先复盘上一月，再补充并确认方案月份的预计资料")
+                if forecast.get("source_signature") != self.source_signature(user, c.period):
+                    raise ValueError("上一月资料或复盘已更新，请重新确认预计资料")
+            elif mode == "adjustment":
+                if c.period != today.strftime("%Y-%m") or not self.get(user, "confirmed_plan", c.period):
+                    raise ValueError("当月调整需要已有已确认方案")
+            else:
+                raise ValueError("未知规划方式")
         if kind == "clean":
             return self.clean(c)
         if kind == "manual":
@@ -318,8 +340,16 @@ class Service:
             expected = c.payload.get("revision")
             if expected is not None and expected != self.revision(user):
                 raise ValueError("输入已更新，请重新生成")
-            if not profile or not record or self.get(user, "month_revision", c.period) != self.revision(user) or self.get(user, "month_semantics_version", c.period) != 2:
-                raise ValueError("请先确认画像和最新月度实况")
+            if not profile:
+                raise ValueError("请先确认画像")
+            mode = c.payload.get("planning_mode", "next_month")
+            source_period = shift_period(c.period, -1)
+            if mode == "next_month":
+                planning_snapshot = MonthSnapshot.model_validate(self.get(user, "forecast_result", c.period)["snapshot"])
+            else:
+                if not record or self.get(user, "month_revision", c.period) != self.fact_revision(user) or self.get(user, "month_semantics_version", c.period) != 2:
+                    raise ValueError("请先确认最新当月实况，再调整已有方案")
+                planning_snapshot = record.snapshot
             from ..domain.profile_delta import effective_profile
             effective = effective_profile(Profile.model_validate(profile), events.load(), as_of_period=min(c.period, today.strftime("%Y-%m")))
             experience = pack.load()
@@ -327,10 +357,10 @@ class Service:
                 experience = experience.model_copy(update={"lessons": [l for l in experience.lessons
                     if valid_period(l.from_period) and l.from_period < c.period and l.from_period <= today.strftime("%Y-%m")
                     and (not experience.generated_at or experience.generated_at <= today.isoformat())]})
-            inputs = PlanInputs(profile=effective.merged(), snapshot=record.snapshot,
+            inputs = PlanInputs(profile=effective.merged(), snapshot=planning_snapshot,
                 history=past_snapshots([r.snapshot for r in history.load_records()], c.period),
                 briefing=self.briefing(user, c.period)["briefing"], experience=experience, period=c.period,
-                as_of=today.isoformat())
+                as_of=today.isoformat(), planning_mode=mode, source_period=source_period if mode == "next_month" else "")
             result = agent.plan(thread, inputs=inputs, user_message=c.user_message, resume=resume)
         else:
             history, _, _, _ = self.stores(user)
@@ -343,6 +373,68 @@ class Service:
         if result.error and not result.degraded and not unchanged_plan:
             raise RuntimeError(result.error)
         return self.save_result(c, result, thread)
+
+    def source_signature(self, user, target):
+        """A forecast depends on exactly M=target-1, its confirmed final review and profile."""
+        source = shift_period(target, -1)
+        record = self.stores(user)[0].load(source)
+        summary = self.get(user, "summary_result", source, {})
+        if not record or review_mode(record.snapshot) != "final" or self.get(user, "month_semantics_version", source) != 2:
+            raise ValueError("请先核对上一月完整账单和实际收入")
+        if not summary.get("confirmed") or summary.get("summary", {}).get("review_mode") != "final":
+            raise ValueError("请先确认上一月的整月复盘")
+        # A new history record must be reviewed again before it can drive planning.
+        record_signature = hashlib.sha256(json.dumps(record.model_dump(mode="json"), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        if summary.get("reviewed_record_signature") != record_signature:
+            raise ValueError("上一月账单已更新，请重新生成并确认复盘")
+        data = {"record": record.model_dump(mode="json"), "summary": summary["summary"], "profile": self.get(user, "profile")}
+        return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    def forecast(self, c):
+        """Forecasts are explicit planning assumptions, never actual monthly history."""
+        if c.period < business_today().strftime("%Y-%m") or c.period == "0001-01":
+            raise ValueError("请选择当前或未来的方案月份")
+        if not self.get(c.user_id, "profile"):
+            raise ValueError("请先确认画像")
+        signature = self.source_signature(c.user_id, c.period)
+        prior = self.get(c.user_id, "forecast_result", c.period, {})
+        if c.action == "confirm":
+            if prior.get("revision") != self.revision(c.user_id) or prior.get("source_signature") != signature:
+                raise ValueError("预计资料的依据已更新，请重新整理并核对")
+            if prior.get("confirmed"):
+                return prior
+            if not prior.get("awaiting_confirmation"):
+                raise ValueError("请先整理预计资料")
+            self.invalidate(c.user_id, facts=False)
+            prior.update(confirmed=True, awaiting_confirmation=False, revision=self.revision(c.user_id))
+            self.put(c.user_id, "forecast_result", prior, c.period)
+            return prior
+        if c.action not in {"finish", "edit", ""}:
+            raise ValueError("预计资料操作无效")
+        amount = c.payload.get("expected_income_cents")
+        if type(amount) is not int or amount < 0:
+            raise ValueError("请明确填写预计整月总收入，0 表示预计没有收入")
+        if c.payload.get("obligations_reviewed") is not True:
+            raise ValueError("请核对方案月份的固定费用、还款和特殊支出")
+        obligations = [PaymentObligation.model_validate(o) for o in c.payload.get("obligations", [])]
+        if len({o.id for o in obligations}) != len(obligations) or any(o.category not in {*SPEND_CATEGORIES, "债务还款"} for o in obligations):
+            raise ValueError("待支付费用的标识或分类无效")
+        funds = c.payload.get("additional_funds_cents")
+        evidence = str(c.payload.get("additional_funds_evidence", "")).strip()
+        if funds and not evidence:
+            raise ValueError("请说明允许动用余额的依据")
+        notes = str(c.payload.get("environment", "")).strip()
+        snapshot = MonthSnapshot(period=c.period, as_of=business_today().isoformat(),
+            expected_income=IncomeFact(amount_cents=amount, role="expected", evidence="用户核对的预计整月总收入"),
+            obligations=obligations, obligations_reviewed=True,
+            additional_funds_cents=funds, additional_funds_evidence=evidence,
+            environment=[LifeEvent(id="forecast-arrangements", label=notes, evidence=notes)] if notes else [])
+        data = {"snapshot": snapshot.model_dump(mode="json"), "source_period": shift_period(c.period, -1),
+            "source_signature": signature, "revision": self.revision(c.user_id),
+            "awaiting_confirmation": True, "confirmed": False,
+            "reply": "请核对预计资料；确认后将结合上一月完整账单与复盘生成方案。"}
+        self.put(c.user_id, "forecast_result", data, c.period)
+        return data
 
     def save_result(self, c, result, thread):
         user, kind = c.user_id, c.kind
@@ -368,8 +460,9 @@ class Service:
                     for m in messages if isinstance(m, (HumanMessage, AIMessage))
                     and not (kind == "month" and isinstance(m, HumanMessage) and m.content == MONTH_OPENING)][-200:]
         if kind == "month":
-            self.put(user, "month_draft_revision", self.revision(user), c.period)
+            self.put(user, "month_draft_revision", self.fact_revision(user), c.period)
         if kind == "plan":
+            data["planning_mode"] = c.payload.get("planning_mode", "next_month")
             if data.get("clarification_target") == "month":
                 self.put(user, "month_handoff", data.get("reply", ""), c.period)
             self.put(user, "plan_draft_revision", self.revision(user), c.period)
@@ -383,7 +476,7 @@ class Service:
             if c.period > business_today().strftime("%Y-%m") and (result.snapshot.income or result.snapshot.categories or result.snapshot.wallet_execution):
                 raise ValueError("未来月份不能确认已发生收支或执行记录")
             self.put(user, "month_handoff", "", c.period)
-            self.put(user, "month_revision", self.revision(user), c.period)
+            self.put(user, "month_revision", self.fact_revision(user), c.period)
             self.put(user, "month_semantics_version", 2, c.period)
         elif kind == "plan" and result.confirmed:
             if not result.validation or not result.validation.ok:
@@ -396,8 +489,10 @@ class Service:
             self.put(user, "confirmed_plan", data["plan"], c.period)
             self.put(user, "plan_revision", self.revision(user), c.period)
         elif kind == "summary" and result.confirmed:
+            record = self.stores(user)[0].load(c.period)
+            data["reviewed_record_signature"] = hashlib.sha256(json.dumps(record.model_dump(mode="json"), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             if not already_confirmed and result.summary.review_mode == "final":
-                self.invalidate(user)
+                self.invalidate(user, facts=False)
         self.put(user, f"{kind}_result", data, "" if kind == "profile" else c.period)
         return data
 
@@ -501,7 +596,7 @@ class Service:
         history, pack, events, summaries = self.stores(user)
         with self.lock:
             context = period_context(period, business_today())
-            up_to_date = self.get(user, "month_revision", period) == self.revision(user) and self.get(user, "month_semantics_version", period) == 2
+            up_to_date = self.get(user, "month_revision", period) == self.fact_revision(user) and self.get(user, "month_semantics_version", period) == 2
             data = {"contract_version": VERSION, "period": period, "revision": self.revision(user),
                 "period_context": context, "snapshot_up_to_date": up_to_date,
                 "categories": list(SPEND_CATEGORIES), "history_periods": history.list_periods(),
@@ -511,12 +606,24 @@ class Service:
                 "month_handoff": self.get(user, "month_handoff", period, ""),
                 "stale": bool(self.get(user, "plan_result", period)) and self.get(user, "plan_draft_revision", period, self.get(user, "plan_revision", period)) != self.revision(user),
                 "month_current": up_to_date}
-            data["month_draft_stale"] = bool(self.get(user, "month_result", period)) and self.get(user, "month_draft_revision", period) != self.revision(user)
+            data["month_draft_stale"] = bool(self.get(user, "month_result", period)) and self.get(user, "month_draft_revision", period) != self.fact_revision(user)
             for kind in ("month", "plan", "summary", "finance", "chat"):
                 data[f"{kind}_result"] = self.get(user, f"{kind}_result", period, {})
             data["history"] = [public(r) for r in history.load_records()]
             record = history.load(period)
             data["review_mode"] = review_mode(record.snapshot) if record else "forecast" if context["status"] == "future" else "stage"
+            forecast = self.get(user, "forecast_result", period, {})
+            data["forecast_result"] = forecast
+            data["forecast_current"] = bool(forecast.get("confirmed") and forecast.get("revision") == self.revision(user))
+            if period >= business_today().strftime("%Y-%m"):
+                try:
+                    signature = self.source_signature(user, period)
+                    data["forecast_source_ready"] = True
+                    data["forecast_current"] = data["forecast_current"] and forecast.get("source_signature") == signature
+                except ValueError as exc:
+                    data["forecast_source_ready"] = False
+                    data["forecast_current"] = False
+                    data["forecast_notice"] = str(exc)
             with self.lock:
                 pending = self.db.execute("SELECT id,command FROM jobs WHERE user=? AND status IN ('queued','running') ORDER BY rowid DESC LIMIT 1", (user,)).fetchone()
             data["pending"] = {"job_id": pending[0], "kind": json.loads(pending[1])["kind"]} if pending else None

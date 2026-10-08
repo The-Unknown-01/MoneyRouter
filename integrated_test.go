@@ -93,6 +93,7 @@ func TestIntegratedFragmentAndPythonContract(t *testing.T) {
 	}
 	req = httptest.NewRequest("POST", "/agent/manual", strings.NewReader(url.Values{"csrf": {csrf}, "action": {"confirm"}, "max_loss_pct": {"0"}, "user_id": {"u999"}, "request_id": {"request001"}}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
 	req.AddCookie(cookie)
 	w = httptest.NewRecorder()
 	a.routes().ServeHTTP(w, req)
@@ -119,6 +120,7 @@ func TestIntegratedFragmentAndPythonContract(t *testing.T) {
 	for _, target := range []string{"999999", strconv.FormatInt(rows[0].ID, 10)} {
 		req = httptest.NewRequest("POST", "/ledger/delete", strings.NewReader(url.Values{"csrf": {csrf}, "id": {target}, "period": {"2026-09"}}.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
 		req.Header.Set("HX-Request", "true")
 		req.AddCookie(cookie)
 		w = httptest.NewRecorder()
@@ -182,6 +184,7 @@ func TestMonthCanStartWithoutLedgerRows(t *testing.T) {
 	a.bridge = &agentBridge{fake.URL, "test", fake.Client()}
 	req := httptest.NewRequest("POST", "/agent/month", strings.NewReader(url.Values{"csrf": {csrf}, "period": {"2026-07"}, "message": {"本月收入2500，已花800"}}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
 	req.AddCookie(cookie)
 	w := httptest.NewRecorder()
 	a.routes().ServeHTTP(w, req)

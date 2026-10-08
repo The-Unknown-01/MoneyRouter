@@ -97,6 +97,8 @@ class PlanInputs(BaseModel):
     )
     period: str = Field(default="", description="方案所属期间 YYYY-MM。")
     as_of: str = Field(default="", description="信息基准日期 YYYY-MM-DD。")
+    planning_mode: Literal["next_month", "adjustment"] = "adjustment"
+    source_period: str = Field(default="", description="主流程依据的上一月完整账单月份，与方案月份相差一个自然月")
     debt_payment_cents: int | None = Field(
         default=None, description="每月债务最低还款（分）；未了解到留空（不补 0）。"
     )

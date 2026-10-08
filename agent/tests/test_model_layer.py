@@ -95,6 +95,20 @@ def test_format_instruction_is_cached():
     assert isinstance(format_instruction(TurnDecision), SystemMessage)
 
 
+def test_plan_string_arrays_are_explicit_in_json_contract():
+    from moneyrouter_agent.domain.plan_turn import PlanTurnDecision, WalletTurnDecision
+
+    text = render_format_instruction(PlanTurnDecision)
+    assert "sections（字符串数组）" in text
+    assert "questions（字符串数组）" in text
+    assert "proposal.wallets.target_cents" in text
+    assert "包含已有 reserve_cents" in text
+    active = render_format_instruction(WalletTurnDecision)
+    assert "proposal.wallets.target_cents" in active
+    assert "sections" not in active
+    assert "reserve_months" not in active
+
+
 # --------------------------------------------------------------------------- #
 # runner：include_raw + 有界重试 + 思维链
 # --------------------------------------------------------------------------- #

@@ -15,7 +15,7 @@ from .wallet import WalletProposal
 RiskLevel = Literal["低", "中", "高"]
 
 
-class PlanTurnDecision(BaseModel):
+class WalletTurnDecision(BaseModel):
     """判断节点每轮的结构化决策：给出方案，还是先问清楚。"""
 
     model_config = ConfigDict(extra="ignore")
@@ -34,6 +34,12 @@ class PlanTurnDecision(BaseModel):
     )
     proposal: WalletProposal | None = Field(default=None, description="finalize 必须给完整自主钱包方案")
     clarification_target: Literal["month"] = "month"
+    notes: str = Field(default="", description="累积的额外了解：值得留意的偏好或约束，不复述对话过程。")
+
+
+class PlanTurnDecision(WalletTurnDecision):
+    """Read compatibility for archived decisions; new model calls use WalletTurnDecision."""
+
     # Read compatibility for older test/archived decisions; v2 ignores these fields.
     wants_ratio_pct: float | None = Field(default=None, description="历史兼容字段，v2 不使用，无默认预算比例")
     risk_level_override: RiskLevel | None = Field(default=None, description="历史兼容字段，v2 不使用固定风险配比")

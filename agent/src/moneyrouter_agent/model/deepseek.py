@@ -132,7 +132,8 @@ def _type_label(annotation: Any) -> str:
     elif _list_item(inner) is not None:
         label = "对象数组"
     elif origin in (list, tuple, set):
-        label = "数组"
+        args = get_args(inner)
+        label = f"{_type_label(args[0])}数组" if args else "数组"
     elif isinstance(inner, type) and issubclass(inner, BaseModel):
         label = "对象"
     else:

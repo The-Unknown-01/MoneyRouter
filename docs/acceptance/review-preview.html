@@ -1,0 +1,83 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f7f9f7"><meta name="htmx-config" content='{"historyCacheSize":0,"allowEval":false,"includeIndicatorStyles":false,"selfRequestsOnly":true}'><title>2026-09 整月复盘 · 稳序</title><link rel="stylesheet" href="/static/ui.css"><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/flow.css"><link rel="stylesheet" href="/static/web.css"><link rel="stylesheet" href="/static/review.css"><script src="/static/htmx.min.js" defer></script><script src="/static/echarts.min.js" defer></script><script src="/static/review.js" defer></script><script src="/static/web.js" defer></script></head>
+<body data-preview="synthetic" class="flow-body" hx-history="false"><header class="flow-header"><div class="flow-header-inner"><a class="flow-brand" href="/" hx-boost="true" hx-target="#app-main" hx-select="#app-main" hx-swap="outerHTML"><span class="brand-mark">◈</span><span><strong>稳序</strong><small>一步一步，安排好每笔钱</small></span></a><div class="flow-account"><span>review_owner</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="c85ae9d9836b2533c7f0b7cf7ab93e4d"><button type="submit">退出</button></form></div></div></header><p class="notice">界面验收预览 · 演示数据，不代表真实用户结果</p><main class="flow-main" id="app-main" data-page="review" hx-history-elt data-page-title="2026-09 整月复盘 · 稳序" data-period="2026-09" hx-history="false" hx-boost="true" hx-target="#app-main" hx-select="#app-main" hx-swap="outerHTML" hx-push-url="true">
+<nav class="flow-progress" aria-label="规划进度"><span class="done"><b>01</b> 了解你</span><i></i><span class=""><b>02</b> 建立账本</span><i></i><span class="current"><b>03</b> 你的方案</span></nav>
+<div class="flow-intro"><p class="eyebrow">MONEY, IN ORDER · 稳序</p><h1>2026-09 整月复盘</h1><p>回看所选月份，让后续安排更贴近生活。</p></div>
+<p class="flow-hint">2026-09 · 历史月份 · 整月资料仍需核对完整</p>
+
+<form class="period-picker" method="get" action="/review"><label for="period">复盘月份</label><select id="period" name="period"><option value="2026-09">2026-09</option><option selected>2026-09</option><option >2026-08</option></select><button class="btn btn-sm" type="submit">查看</button></form>
+<div id="operation" aria-live="polite"></div>
+
+
+
+
+
+
+
+
+
+
+
+
+<p class="flow-hint">整月实际资料已核对。默认比较最初确认的方案，可选择其他版本。</p>
+
+
+<div class="review-dashboard">
+<section class="review-hero" aria-labelledby="review-heading">
+  <div><p class="eyebrow">YOUR MONEY, YOUR PROGRESS</p><h2 id="review-heading">每一份积累，都看得见。</h2><p>本月净攒 2,800 元，完成储蓄计划的 112%；支出比上月少了 620 元。</p>
+  <div class="review-tags"><span>2026-09 · 整月成果</span><span>已确认</span><span>数据截至 2026-09-30</span></div></div>
+  <div class="review-hero-mark" aria-hidden="true"><span>◈</span><small>稳步向前</small></div>
+</section>
+<div class="review-metrics"><article class="review-metric neutral"><small>实际收入</small><strong>¥6800.00</strong><span>较上月 &#43;¥300.00（&#43;4.6%）</span><p>仅计已到账收入</p></article><article class="review-metric neutral"><small>实际支出</small><strong>¥4000.00</strong><span>较上月 −¥620.00（-13.4%）</span><p>本期核对的消费支出</p></article><article class="review-metric neutral"><small>实际净结余</small><strong>¥2800.00</strong><span>较上月 &#43;¥920.00（&#43;48.9%）</span><p>收入 − 支出</p></article><article class="review-metric neutral"><small>投资盈亏</small><strong>¥128.00</strong><span>较上月 &#43;¥184.00</span><p>市场盈亏，独立于收支结余</p></article><article class="review-metric positive"><small>比上月少花</small><strong>¥620.00</strong><span>同口径支出较上月减少</span><p>支出差额，不等于储蓄或投资收益</p></article></div>
+<div class="review-grid">
+<section class="review-panel review-goal"><div class="review-panel-head"><div><p class="eyebrow">A LITTLE CLOSER</p><h2>这个月，离目标多近了？</h2></div><span class="review-pill">本月储蓄目标已达成</span></div>
+<p class="review-goal-name">攒下第一笔 30,000 元应急储蓄</p><div class="review-goal-number"><strong>112.0%</strong><span>本月储蓄计划完成度</span></div>
+<progress class="review-progress" max="100" value="100" aria-label="本月储蓄计划完成度"></progress>
+<div class="review-mini-stats"><div><small>本月实际净攒</small><strong>¥2800.00</strong></div><div><small>本月计划</small><strong>¥2500.00</strong></div></div>
+<div class="review-goal-total"><span>累计已攒 / 总目标</span><strong>¥16800.00 / ¥30000.00</strong></div>
+<div class="review-achievements"><p><span aria-hidden="true">✦</span> 本月目标储蓄进度符合计划</p></div>
+</section>
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">WHERE IT GOES</p><h2>结余留下，未来有余</h2></div></div>
+<div class="review-cashflow"><small>本月实际净结余</small><strong>¥2800.00</strong><span>收入 − 支出</span></div>
+<div class="review-mini-stats"><div><small>留作储蓄 / 备用</small><strong>¥2000.00</strong></div><div><small>新增投资本金</small><strong>¥800.00</strong></div></div>
+<div class="review-return"><span>本月投资盈亏</span><strong>¥128.00</strong></div>
+<p class="review-footnote">储蓄与投资本金是资金去向；市场盈亏单独展示，不与结余重复相加。</p>
+</section>
+</div>
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">THIS MONTH / LAST MONTH</p><h2>和上个月，有什么不同？</h2></div><span class="review-pill">2026-08 → 2026-09</span></div>
+<p class="review-footnote">同口径完整月份比较。支出减少是消费变化，结合实际生活安排理解。</p>
+<div class="chart review-chart" data-chart="review-comparison" role="img" aria-label="上月与本月收支及投资盈亏对比，详细金额见下表"></div>
+<div class="review-table-scroll"><table class="review-table"><caption class="sr-only">月度财务对比明细</caption><thead><tr><th scope="col">指标</th><th scope="col">上月</th><th scope="col">本月</th><th scope="col">变化</th></tr></thead><tbody><tr><th scope="row">实际收入</th><td>¥6500.00</td><td>¥6800.00</td><td>较上月 &#43;¥300.00（&#43;4.6%）</td></tr><tr><th scope="row">实际支出</th><td>¥4620.00</td><td>¥4000.00</td><td>较上月 −¥620.00（-13.4%）</td></tr><tr><th scope="row">实际净结余</th><td>¥1880.00</td><td>¥2800.00</td><td>较上月 &#43;¥920.00（&#43;48.9%）</td></tr><tr><th scope="row">投资盈亏</th><td>−¥56.00</td><td>¥128.00</td><td>较上月 &#43;¥184.00</td></tr></tbody></table></div>
+</section>
+<div class="review-grid">
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">PLAN INTO PRACTICE</p><h2>钱包执行情况</h2></div><span class="review-pill">方案第 1 版</span></div><p class="review-footnote">消费看预算边界，储蓄与投资看实际投入。</p>
+<div class="review-wallet"><div><strong>好好吃饭</strong><span class="review-pill positive">预算内</span></div><p><span>实际 ¥1180.00</span><span>计划 ¥1500.00</span></p><progress class="review-progress positive" max="100" value="78" aria-label="好好吃饭执行与计划比例"></progress></div><div class="review-wallet"><div><strong>安心居住</strong><span class="review-pill positive">预算内</span></div><p><span>实际 ¥1600.00</span><span>计划 ¥1600.00</span></p><progress class="review-progress positive" max="100" value="100" aria-label="安心居住执行与计划比例"></progress></div><div class="review-wallet"><div><strong>生活小确幸</strong><span class="review-pill caution">超出 ¥80.00</span></div><p><span>实际 ¥680.00</span><span>计划 ¥600.00</span></p><progress class="review-progress caution" max="100" value="100" aria-label="生活小确幸执行与计划比例"></progress></div><div class="review-wallet"><div><strong>应急储蓄</strong><span class="review-pill positive">计划投入已完成</span></div><p><span>实际 ¥2000.00</span><span>计划 ¥1700.00</span></p><progress class="review-progress positive" max="100" value="100" aria-label="应急储蓄执行与计划比例"></progress></div><div class="review-wallet"><div><strong>长期积累</strong><span class="review-pill positive">计划投入已完成</span></div><p><span>实际 ¥800.00</span><span>计划 ¥800.00</span></p><progress class="review-progress positive" max="100" value="100" aria-label="长期积累执行与计划比例"></progress></div>
+<details class="review-details"><summary>查看各层计划与实际</summary><div class="chart" data-chart="diff" role="img" aria-label="各层计划与实际金额对比"></div></details>
+</section>
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">SMALL CHANGES MATTER</p><h2>钱主要花在哪里？</h2></div></div><div class="chart" data-chart="review-categories" role="img" aria-label="各分类本月实际支出与预算"></div><p class="review-footnote">悬停或轻触查看金额。缺失预算与实际值保留为空。</p><details class="review-details" open><summary>哪些分类比上月发生了变化？</summary><div class="review-category-change"><div><strong>餐饮</strong><small>上月 ¥1600.00 → 本月 ¥1180.00</small></div><span>−¥420.00</span></div><div class="review-category-change"><div><strong>居住</strong><small>上月 ¥1600.00 → 本月 ¥1600.00</small></div><span>¥0.00</span></div><div class="review-category-change"><div><strong>购物</strong><small>上月 ¥880.00 → 本月 ¥680.00</small></div><span>−¥200.00</span></div></details></section>
+</div>
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">YOUR FINANCIAL JOURNEY</p><h2>每个月的积累</h2></div><div class="review-switch" role="group" aria-label="选择历史趋势"><button type="button" class="active" data-review-trend="cashflow" aria-pressed="true">收支与结余</button><button type="button" data-review-trend="returns" aria-pressed="false">投资盈亏</button></div></div><div class="chart review-chart" data-chart="review-history" role="img" aria-label="历月收支与结余趋势"></div><p class="review-footnote">空缺月份不连线；阶段记录以空心点标注。投资盈亏与投资本金分开查看。</p></section>
+<section class="review-panel review-insight"><p class="eyebrow">MAKE NEXT MONTH BETTER</p><h2>把本月的经验，带到下一步</h2><p class="narrative">本月实际收入 6,800 元，实际支出 4,000 元。净结余 2,800 元，超过原计划 300 元。
+餐饮支出减少 420 元，是本月消费变化的主要来源。居住费用保持稳定；购物钱包超出预算 80 元，下月可结合需求重新安排。
+本月留作储蓄 2,000 元，新增投资本金 800 元，投资盈亏为 &#43;128 元。市场收益单独记录，不重复计入净结余。
+</p><a class="btn btn-primary" href="/month?period=2026-10">核对 2026-10，继续向目标前进 →</a></section>
+</div>
+
+
+<section class="flow-section agent-section"><div class="conversation" id="conversation"><p class="empty-note">复盘已经整理好。你可以补充原因或调整内容，再生成新的回顾。</p></div>
+<form class="agent-compose" method="post" action="/agent/summary" hx-target="#operation" hx-select="unset" hx-push-url="false" data-agent-form >
+<input name="csrf" value="c85ae9d9836b2533c7f0b7cf7ab93e4d" type="hidden"><input name="period" value="2026-09" type="hidden"><input name="request_id" value="3f13dc5890c8a2962c1c06e948aa48be" type="hidden">
+<label>比较方案版本<select name="plan_version" ><option value="">最初确认的方案</option><option value="1" selected>第 1 版</option></select></label>
+
+<label class="sr-only" for="agent-message">你的回答或问题</label><textarea id="agent-message" name="message" rows="2" maxlength="2000" placeholder="写下你的想法…"></textarea><div class="compose-actions"><small>金额与事实由规则校验，未知信息保持空白。</small><button class="btn btn-primary" type="submit" name="action" value="">生成整月复盘</button></div>
+</form></section>
+
+
+<div class="flow-back-links"><a class="flow-back" href="/ledger?period=2026-09">← 返回账本</a><a class="flow-back" href="/plan?period=2026-09">返回方案</a></div>
+
+
+
+
+<div id="chart-data" data-json="{&#34;diff&#34;:[{&#34;actual_cents&#34;:680000,&#34;layer&#34;:&#34;income&#34;,&#34;planned_cents&#34;:650000},{&#34;actual_cents&#34;:332000,&#34;layer&#34;:&#34;necessary&#34;,&#34;planned_cents&#34;:350000},{&#34;actual_cents&#34;:68000,&#34;layer&#34;:&#34;wants&#34;,&#34;planned_cents&#34;:50000},{&#34;actual_cents&#34;:280000,&#34;layer&#34;:&#34;savings&#34;,&#34;planned_cents&#34;:250000}],&#34;history&#34;:[{&#34;period&#34;:&#34;2026-06&#34;,&#34;snapshot&#34;:{&#34;balance_cents&#34;:188000,&#34;coverage_complete&#34;:true,&#34;income&#34;:{&#34;amount_cents&#34;:650000,&#34;role&#34;:&#34;actual&#34;},&#34;investments&#34;:{&#34;month_return_cents&#34;:-5600},&#34;schema_version&#34;:2,&#34;spend_total_cents&#34;:462000}},{&#34;period&#34;:&#34;2026-07&#34;,&#34;snapshot&#34;:{&#34;balance_cents&#34;:188000,&#34;coverage_complete&#34;:true,&#34;income&#34;:{&#34;amount_cents&#34;:650000,&#34;role&#34;:&#34;actual&#34;},&#34;investments&#34;:{&#34;month_return_cents&#34;:-5600},&#34;schema_version&#34;:2,&#34;spend_total_cents&#34;:462000}},{&#34;period&#34;:&#34;2026-08&#34;,&#34;snapshot&#34;:{&#34;balance_cents&#34;:188000,&#34;coverage_complete&#34;:true,&#34;income&#34;:{&#34;amount_cents&#34;:650000,&#34;role&#34;:&#34;actual&#34;},&#34;investments&#34;:{&#34;month_return_cents&#34;:-5600},&#34;schema_version&#34;:2,&#34;spend_total_cents&#34;:462000}},{&#34;period&#34;:&#34;2026-09&#34;,&#34;snapshot&#34;:{&#34;balance_cents&#34;:280000,&#34;coverage_complete&#34;:true,&#34;income&#34;:{&#34;amount_cents&#34;:680000,&#34;role&#34;:&#34;actual&#34;},&#34;investments&#34;:{&#34;month_return_cents&#34;:12800},&#34;schema_version&#34;:2,&#34;spend_total_cents&#34;:400000}}],&#34;review&#34;:{&#34;diff&#34;:{&#34;categories&#34;:[{&#34;actual_cents&#34;:118000,&#34;category&#34;:&#34;餐饮&#34;,&#34;planned_cents&#34;:150000},{&#34;actual_cents&#34;:160000,&#34;category&#34;:&#34;居住&#34;,&#34;planned_cents&#34;:160000},{&#34;actual_cents&#34;:54000,&#34;category&#34;:&#34;交通&#34;,&#34;planned_cents&#34;:60000},{&#34;actual_cents&#34;:68000,&#34;category&#34;:&#34;购物&#34;,&#34;planned_cents&#34;:60000}],&#34;layers&#34;:[{&#34;actual_cents&#34;:680000,&#34;layer&#34;:&#34;income&#34;,&#34;planned_cents&#34;:650000},{&#34;actual_cents&#34;:332000,&#34;layer&#34;:&#34;necessary&#34;,&#34;planned_cents&#34;:350000},{&#34;actual_cents&#34;:68000,&#34;layer&#34;:&#34;wants&#34;,&#34;planned_cents&#34;:50000},{&#34;actual_cents&#34;:280000,&#34;layer&#34;:&#34;savings&#34;,&#34;planned_cents&#34;:250000}],&#34;plan_version&#34;:1},&#34;generated_at&#34;:&#34;2026-10-01&#34;,&#34;headline&#34;:&#34;本月净攒 2,800 元，完成储蓄计划的 112%；支出比上月少了 620 元。&#34;,&#34;insights&#34;:{&#34;accounting&#34;:{&#34;invested_cents&#34;:80000,&#34;market_return_cents&#34;:12800,&#34;retained_cents&#34;:200000,&#34;surplus_cents&#34;:280000},&#34;as_of&#34;:&#34;2026-09-30&#34;,&#34;category_changes&#34;:[{&#34;current_cents&#34;:118000,&#34;delta_cents&#34;:-42000,&#34;id&#34;:&#34;餐饮&#34;,&#34;previous_cents&#34;:160000},{&#34;current_cents&#34;:160000,&#34;delta_cents&#34;:0,&#34;id&#34;:&#34;居住&#34;,&#34;previous_cents&#34;:160000},{&#34;current_cents&#34;:68000,&#34;delta_cents&#34;:-20000,&#34;id&#34;:&#34;购物&#34;,&#34;previous_cents&#34;:88000}],&#34;comparable&#34;:true,&#34;goal&#34;:{&#34;goal&#34;:&#34;攒下第一笔 30,000 元应急储蓄&#34;,&#34;on_track&#34;:true,&#34;planned_this_month_cents&#34;:250000,&#34;progress_pct&#34;:56,&#34;saved_this_month_cents&#34;:280000,&#34;saved_to_date_cents&#34;:1680000,&#34;target_cents&#34;:3000000},&#34;metrics&#34;:[{&#34;current_cents&#34;:680000,&#34;delta_cents&#34;:30000,&#34;delta_pct&#34;:4.62,&#34;id&#34;:&#34;income_cents&#34;,&#34;previous_cents&#34;:650000},{&#34;current_cents&#34;:400000,&#34;delta_cents&#34;:-62000,&#34;delta_pct&#34;:-13.42,&#34;id&#34;:&#34;spend_total_cents&#34;,&#34;previous_cents&#34;:462000},{&#34;current_cents&#34;:280000,&#34;delta_cents&#34;:92000,&#34;delta_pct&#34;:48.94,&#34;id&#34;:&#34;balance_cents&#34;,&#34;previous_cents&#34;:188000},{&#34;current_cents&#34;:12800,&#34;delta_cents&#34;:18400,&#34;delta_pct&#34;:-328.57,&#34;id&#34;:&#34;investment_return_cents&#34;,&#34;previous_cents&#34;:-5600}],&#34;milestones&#34;:[{&#34;id&#34;:&#34;goal_on_track:2026-09&#34;,&#34;label&#34;:&#34;本月目标储蓄进度符合计划&#34;}],&#34;period&#34;:&#34;2026-09&#34;,&#34;previous_available&#34;:true,&#34;previous_period&#34;:&#34;2026-08&#34;,&#34;review_mode&#34;:&#34;final&#34;,&#34;schema_version&#34;:1,&#34;wallet_execution&#34;:[{&#34;actual_cents&#34;:118000,&#34;id&#34;:&#34;food&#34;,&#34;kind&#34;:&#34;expense&#34;,&#34;name&#34;:&#34;好好吃饭&#34;,&#34;planned_cents&#34;:150000},{&#34;actual_cents&#34;:160000,&#34;id&#34;:&#34;living&#34;,&#34;kind&#34;:&#34;expense&#34;,&#34;name&#34;:&#34;安心居住&#34;,&#34;planned_cents&#34;:160000},{&#34;actual_cents&#34;:68000,&#34;id&#34;:&#34;shopping&#34;,&#34;kind&#34;:&#34;expense&#34;,&#34;name&#34;:&#34;生活小确幸&#34;,&#34;planned_cents&#34;:60000},{&#34;actual_cents&#34;:200000,&#34;id&#34;:&#34;saving&#34;,&#34;kind&#34;:&#34;savings&#34;,&#34;name&#34;:&#34;应急储蓄&#34;,&#34;planned_cents&#34;:170000},{&#34;actual_cents&#34;:80000,&#34;id&#34;:&#34;invest&#34;,&#34;kind&#34;:&#34;investment&#34;,&#34;name&#34;:&#34;长期积累&#34;,&#34;planned_cents&#34;:80000}]},&#34;period&#34;:&#34;2026-09&#34;,&#34;review_mode&#34;:&#34;final&#34;,&#34;sections&#34;:[&#34;本月实际收入 6,800 元，实际支出 4,000 元。净结余 2,800 元，超过原计划 300 元。&#34;,&#34;餐饮支出减少 420 元，是本月消费变化的主要来源。居住费用保持稳定；购物钱包超出预算 80 元，下月可结合需求重新安排。&#34;,&#34;本月留作储蓄 2,000 元，新增投资本金 800 元，投资盈亏为 &#43;128 元。市场收益单独记录，不重复计入净结余。&#34;]}}" hidden></div>
+<dialog id="confirm-dialog" class="modal"><div class="modal-box"><h3>确认操作</h3><p id="confirm-text"></p><div class="modal-action"><button class="btn btn-ghost" type="button" data-dialog-cancel>取消</button><button class="btn btn-primary" type="button" data-dialog-confirm>确认</button></div></div></dialog>
+<footer class="web-footer">稳序 · 让每笔钱更有安排</footer>
+</main></body></html>

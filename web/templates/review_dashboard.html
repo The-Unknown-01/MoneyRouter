@@ -1,0 +1,41 @@
+{{define "review_dashboard"}}
+{{with .Review}}
+<div class="review-dashboard">
+<section class="review-hero" aria-labelledby="review-heading">
+  <div><p class="eyebrow">YOUR MONEY, YOUR PROGRESS</p><h2 id="review-heading">每一份积累，都看得见。</h2><p>{{if $.Headline}}{{$.Headline}}{{else}}看清本月的成果，把下一步安排得更从容。{{end}}</p>
+  <div class="review-tags"><span>{{$.Period}} · {{if .Final}}整月成果{{else}}阶段回顾{{end}}</span><span>{{if $.Confirmed}}已确认{{else}}待你确认{{end}}</span>{{if .AsOf}}<span>数据截至 {{.AsOf}}</span>{{end}}</div></div>
+  <div class="review-hero-mark" aria-hidden="true"><span>◈</span><small>稳步向前</small></div>
+</section>
+<div class="review-metrics">{{range .Metrics}}<article class="review-metric {{.Tone}}"><small>{{.Label}}</small><strong>{{.Value}}</strong><span>{{.Change}}</span><p>{{.Note}}</p></article>{{end}}</div>
+<div class="review-grid">
+<section class="review-panel review-goal"><div class="review-panel-head"><div><p class="eyebrow">A LITTLE CLOSER</p><h2>这个月，离目标多近了？</h2></div><span class="review-pill">{{.GoalStatus}}</span></div>
+<p class="review-goal-name">{{.Goal}}</p><div class="review-goal-number"><strong>{{.GoalPercent}}</strong><span>本月储蓄计划完成度</span></div>
+{{if .GoalKnown}}<progress class="review-progress" max="100" value="{{.GoalBar}}" aria-label="本月储蓄计划完成度"></progress>{{else}}<p class="review-empty">补充本月储蓄计划与实际净结余后，将展示完成度。</p>{{end}}
+<div class="review-mini-stats"><div><small>本月实际净攒</small><strong>{{.GoalActual}}</strong></div><div><small>本月计划</small><strong>{{.GoalPlanned}}</strong></div></div>
+<div class="review-goal-total"><span>累计已攒 / 总目标</span><strong>{{.GoalTotal}} / {{.GoalTarget}}</strong></div>
+{{if .Milestones}}<div class="review-achievements">{{range .Milestones}}<p><span aria-hidden="true">✦</span> {{.}}</p>{{end}}</div>{{end}}
+</section>
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">WHERE IT GOES</p><h2>结余留下，未来有余</h2></div></div>
+<div class="review-cashflow"><small>本月实际净结余</small><strong>{{.Surplus}}</strong><span>收入 − 支出</span></div>
+<div class="review-mini-stats"><div><small>留作储蓄 / 备用</small><strong>{{.Retained}}</strong></div><div><small>新增投资本金</small><strong>{{.Invested}}</strong></div></div>
+<div class="review-return"><span>本月投资盈亏</span><strong>{{.MarketReturn}}</strong></div>
+<p class="review-footnote">储蓄与投资本金是资金去向；市场盈亏单独展示，不与结余重复相加。</p>
+</section>
+</div>
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">THIS MONTH / LAST MONTH</p><h2>和上个月，有什么不同？</h2></div><span class="review-pill">{{.Previous}} → {{$.Period}}</span></div>
+{{if .Comparable}}<p class="review-footnote">同口径完整月份比较。支出减少是消费变化，结合实际生活安排理解。</p>{{else}}<p class="review-empty">{{if .Final}}上月缺少完整资料，暂不计算环比；已有金额仍可查看。{{else}}本月仍是阶段回顾，暂不与上月整月结果计算环比。{{end}}</p>{{end}}
+<div class="chart review-chart" data-chart="review-comparison" role="img" aria-label="上月与本月收支及投资盈亏对比，详细金额见下表"></div>
+<div class="review-table-scroll"><table class="review-table"><caption class="sr-only">月度财务对比明细</caption><thead><tr><th scope="col">指标</th><th scope="col">上月</th><th scope="col">本月</th><th scope="col">变化</th></tr></thead><tbody>{{range .Comparison}}<tr><th scope="row">{{.Label}}</th><td>{{.Change}}</td><td>{{.Value}}</td><td>{{.Note}}</td></tr>{{end}}</tbody></table></div>
+</section>
+<div class="review-grid">
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">PLAN INTO PRACTICE</p><h2>钱包执行情况</h2></div>{{if .PlanVersion}}<span class="review-pill">方案第 {{.PlanVersion}} 版</span>{{end}}</div><p class="review-footnote">消费看预算边界，储蓄与投资看实际投入。</p>
+{{range .Wallets}}<div class="review-wallet"><div><strong>{{.Name}}</strong><span class="review-pill {{.Tone}}">{{.Status}}</span></div><p><span>实际 {{.Actual}}</span><span>计划 {{.Planned}}</span></p>{{if .Known}}<progress class="review-progress {{.Tone}}" max="100" value="{{.Percent}}" aria-label="{{.Name}}执行与计划比例"></progress>{{end}}</div>{{else}}<p class="review-empty">暂无钱包执行资料。核对实际去向后，查看每笔安排的落实情况。</p>{{end}}
+<details class="review-details"><summary>查看各层计划与实际</summary><div class="chart" data-chart="diff" role="img" aria-label="各层计划与实际金额对比"></div></details>
+</section>
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">SMALL CHANGES MATTER</p><h2>钱主要花在哪里？</h2></div></div><div class="chart" data-chart="review-categories" role="img" aria-label="各分类本月实际支出与预算"></div><p class="review-footnote">悬停或轻触查看金额。缺失预算与实际值保留为空。</p>{{if .CategoryChanges}}<details class="review-details" open><summary>哪些分类比上月发生了变化？</summary>{{range .CategoryChanges}}<div class="review-category-change"><div><strong>{{.Label}}</strong><small>{{.Change}}</small></div><span>{{.Value}}</span></div>{{end}}</details>{{end}}</section>
+</div>
+<section class="review-panel"><div class="review-panel-head"><div><p class="eyebrow">YOUR FINANCIAL JOURNEY</p><h2>每个月的积累</h2></div><div class="review-switch" role="group" aria-label="选择历史趋势"><button type="button" class="active" data-review-trend="cashflow" aria-pressed="true">收支与结余</button><button type="button" data-review-trend="returns" aria-pressed="false">投资盈亏</button></div></div><div class="chart review-chart" data-chart="review-history" role="img" aria-label="历月收支与结余趋势"></div><p class="review-footnote">空缺月份不连线；阶段记录以空心点标注。投资盈亏与投资本金分开查看。</p></section>
+{{if $.Narrative}}<section class="review-panel review-insight"><p class="eyebrow">MAKE NEXT MONTH BETTER</p><h2>把本月的经验，带到下一步</h2><p class="narrative">{{$.Narrative}}</p>{{if and $.CanPlanNext $.Confirmed (eq $.ReviewMode "final")}}<a class="btn btn-primary" href="/forecast?period={{$.NextPeriod}}">补充 {{$.NextPeriod}} 预期，继续向目标前进 →</a>{{end}}</section>{{end}}
+</div>
+{{end}}
+{{end}}

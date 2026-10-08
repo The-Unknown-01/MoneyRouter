@@ -17,6 +17,7 @@
    const palette=['#246654','#69a38b','#a3c2a3','#cfb780','#7c9baf'];
    let option=null;
    const common={animation:!reduced(),animationDuration:260,color:palette,textStyle:{fontFamily:'Segoe UI, Microsoft YaHei, sans-serif',color:'#6f8779'},tooltip:{trigger:'item',valueFormatter:v=>'¥ '+Number(v).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}};
+   if(key.startsWith('review-'))option=window.reviewChartOption?.(key,data,common);
    if(key==='categories'&&data.categories?.length) option={...common,grid:{left:85,right:30,top:10,bottom:25},xAxis:{type:'value',splitLine:{lineStyle:{color:'#edf1ec'}}},yAxis:{type:'category',data:data.categories.map(v=>v.name)},series:[{type:'bar',barMaxWidth:18,itemStyle:{borderRadius:[0,5,5,0]},data:data.categories.map(v=>v.value/100)}]};
    if(key==='wallets'&&data.wallets?.length)option={...common,legend:{bottom:0,type:'scroll'},series:[{type:'pie',radius:['45%','70%'],center:['50%','42%'],label:{show:false},data:data.wallets.filter(w=>w.amount_cents>0).map(w=>({name:w.name,value:w.amount_cents/100}))}]};
    if(key==='budget'&&data.budget?.income_cents>0){const fields=[['necessary_cents','必要支出'],['debt_cents','债务还款'],['wants_cents','可选支出'],['savings_cents','储蓄']];option={...common,legend:{bottom:0,itemWidth:10,itemHeight:10},grid:{left:8,right:8,top:15,bottom:55},xAxis:{type:'value',show:false},yAxis:{type:'category',show:false,data:['分配']},series:fields.map(([field,name])=>({type:'bar',stack:'budget',name,barWidth:30,data:[data.budget[field]/100]}))};}
@@ -28,15 +29,23 @@
    const chart=echarts.init(element,null,{renderer:'svg'});chart.setOption(option);
    if(key==='categories')chart.on('click',event=>{htmx.ajax('GET','/ledger?period='+encodeURIComponent(main.dataset.period)+'&category='+encodeURIComponent(event.name),{target:'#app-main',swap:'outerHTML'});history.pushState({},'', '/ledger?period='+encodeURIComponent(main.dataset.period)+'&category='+encodeURIComponent(event.name));});
    const observer=new ResizeObserver(()=>chart.resize());observer.observe(element);charts.set(element,{chart,observer});
+   if(key==='review-history')element.closest('.review-panel').querySelectorAll('[data-review-trend]').forEach(button=>button.addEventListener('click',()=>{
+    const next=window.reviewChartOption?.(key,data,common,button.dataset.reviewTrend);if(next)chart.setOption(next,true);
+    element.setAttribute('aria-label',button.dataset.reviewTrend==='returns'?'历月投资盈亏趋势':'历月收支与结余趋势');
+    element.closest('.review-panel').querySelectorAll('[data-review-trend]').forEach(b=>{const active=b===button;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
+   }));
   });
   document.querySelectorAll('form').forEach(form=>{const saved=drafts.get(location.pathname+'|'+form.getAttribute('action'));if(saved)for(const [name,value] of Object.entries(saved)){const input=form.elements[name];if(input&&input.type!=='file'&&!['csrf','request_id','id'].includes(name))input.value=value;}});
- const starter=document.querySelector('form[data-auto-start="true"]');
- if(starter){starter.removeAttribute('data-auto-start');queueMicrotask(()=>{if(starter.isConnected)starter.requestSubmit();});}
+
  const convo=document.querySelector('#conversation');if(convo)convo.scrollTop=convo.scrollHeight;
  }
  document.addEventListener('input',event=>{const input=event.target;const form=input.closest('form');if(!form||!input.name||input.type==='file')return;const key=location.pathname+'|'+form.getAttribute('action');const saved=drafts.get(key)||{};saved[input.name]=input.value;drafts.set(key,saved);});
  document.addEventListener('operationCompleted',()=>{for(const key of drafts.keys())if(key.startsWith(location.pathname+'|'))drafts.delete(key);});
  document.addEventListener('DOMContentLoaded',()=>initialize());
+ document.addEventListener('htmx:load',()=>{
+  const starter=document.querySelector('form[data-auto-start="true"]');
+  if(starter){starter.removeAttribute('data-auto-start');queueMicrotask(()=>{if(starter.isConnected)starter.requestSubmit();});}
+ });
  document.addEventListener('htmx:historyRestore',()=>{for(const [el,value] of charts){if(!el.isConnected){value.observer.disconnect();value.chart.dispose();charts.delete(el);}}initialize(document);previousPath=location.pathname;});
  document.addEventListener('htmx:beforeRequest',event=>{
   const form=event.detail.elt.closest('form');if(!form)return;

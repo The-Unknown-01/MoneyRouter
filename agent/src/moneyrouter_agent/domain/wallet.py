@@ -25,7 +25,8 @@ class Wallet(BaseModel):
     change_reason: str = Field(default="", max_length=1200)
     assumptions: list[str] = Field(default_factory=list)
     source_urls: list[str] = Field(default_factory=list, description="只能引用金融简报实际存在的 URL")
-    target_cents: int | None = Field(default=None, ge=0, strict=True)
+    target_cents: int | None = Field(default=None, ge=0, strict=True,
+        description="缓冲钱包必填：自主选择的储备总目标，包含已有 reserve_cents；本月投入不能超过总目标减已有储备的缺口。不是本月新投入金额。其他钱包可空。")
     asset_class: Literal["liquid", "steady", "growth"] | None = None
     asset_scope: str = Field(default="", description="资产类别、市场范围或策略；不指定未经核实的产品")
     horizon_months: int | None = Field(default=None, ge=1, le=600)
@@ -48,6 +49,7 @@ def planning_facts(inputs):
     window = history_window(inputs.period) if valid_period(inputs.period) and inputs.period > "0001-03" else []
     return {
         "period": inputs.period, "as_of": inputs.as_of,
+        "planning_mode": inputs.planning_mode, "source_period": inputs.source_period,
         "period_context": period_context(inputs.period, date.fromisoformat(inputs.as_of) if inputs.as_of else None) if valid_period(inputs.period) else {},
         "profile": inputs.profile.model_dump(mode="json") if inputs.profile else None,
         "month": snapshot.model_dump(mode="json") if snapshot else None,
@@ -67,6 +69,15 @@ def validate_wallets(proposal, inputs):
     income = planning_income_cents(snapshot) if snapshot else None
     if not valid_period(inputs.period):
         errors.append("缺少有效的方案月份")
+    if inputs.planning_mode == "next_month":
+        from ..periods import shift_period
+        from .month import complete_month
+        if not valid_period(inputs.source_period) or shift_period(inputs.source_period, 1) != inputs.period:
+            errors.append("账单月份 M 与方案月份 M+1 必须相邻")
+        if not any(s.period == inputs.source_period and complete_month(s) for s in inputs.history):
+            errors.append("缺少上一月完整账单依据")
+        if snapshot and (snapshot.income or snapshot.categories or snapshot.wallet_execution):
+            errors.append("下一月预期中不能混入已发生收支，请使用当月调整入口")
     if inputs.as_of and inputs.period < inputs.as_of[:7]:
         errors.append("历史月份仅供查看与复盘，请选择当前或未来月份生成方案")
     if snapshot and inputs.as_of and inputs.period > inputs.as_of[:7] and (actual_income_cents(snapshot) is not None or snapshot.categories or snapshot.wallet_execution):

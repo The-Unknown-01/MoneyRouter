@@ -19,8 +19,9 @@ def service(tmp_path, monkeypatch, business_clock):
    def decision(messages):
     facts=self.context.inputs
     wallets=[Wallet(id=c.category,name=c.category,kind="expense",category=c.category,amount_cents=c.amount_cents,
-       reason="用户确认的本月费用",execution="核对实际") for c in facts.snapshot.categories]
-    surplus=facts.snapshot.income.amount_cents-sum(w.amount_cents for w in wallets)
+       reason="用户确认的本月费用",execution="核对实际") for c in (facts.snapshot.categories if facts.planning_mode == "adjustment" else facts.snapshot.obligations)]
+    from moneyrouter_agent.domain.month import planning_income_cents
+    surplus=planning_income_cents(facts.snapshot)-sum(w.amount_cents for w in wallets)
     wallets.append(Wallet(id="goal",name="目标储蓄",kind="goal",amount_cents=surplus,reason="测试用户目标",execution="单独留存"))
     return PlanTurnDecision(reply="请核对",status="finalize",proposal=WalletProposal(headline="测试方案",wallets=wallets))
    super().__init__(decide_runner=decision,**kwargs)
@@ -34,6 +35,17 @@ def command(kind,user='u1',action='',payload=None,request='request001',period='2
 
 def seed(s,user='u1'):
  s.execute(command('manual',user,'confirm',{'income_cents':800000,'income_stable':True,'debt_cents':0,'reserve_cents':100000,'horizon_months':36,'max_loss_pct':0}))
+ from moneyrouter_agent.history import MonthRecord
+ from moneyrouter_agent.domain.month import MonthSnapshot, IncomeFact, CategorySpend, recompute
+ history=s.stores(user)[0]
+ history.save(MonthRecord(period='2026-08',snapshot=recompute(MonthSnapshot(period='2026-08',coverage_complete=True,
+     income=IncomeFact(amount_cents=800000),categories=[CategorySpend(category='居住',amount_cents=200000)]))))
+ s.put(user,'month_semantics_version',2,'2026-08')
+ s.execute(command('summary',user,period='2026-08'))
+ s.execute(command('summary',user,'confirm',period='2026-08'))
+ s.execute(command('forecast',user,'finish',{'expected_income_cents':800000,'obligations_reviewed':True,
+     'obligations':[{'id':'rent','category':'居住','label':'房租','amount_cents':200000,'evidence':'用户明确的下月房租'}]}))
+ s.execute(command('forecast',user,'confirm'))
  doc={'period':'2026-09','cashflow':[{'date':'2026-09-01','direction':'income','amount':'8000.00','category':'工资'},{'date':'2026-09-02','direction':'expense','amount':'2000.00','category':'居住'},{'date':'2026-09-03','direction':'transfer','amount':'1000.00'}]}
  s.execute(command('month',user,payload={'bill':json.dumps(doc)}))
  s.execute(command('month',user,'finish',{'non_invested_cents':600000,'invested_cents':0,'has_investments':False,'obligations_reviewed':True}))
@@ -180,3 +192,45 @@ def test_api_auth_and_schema(tmp_path,monkeypatch):
   assert client.get('/v1/users/../state',headers=headers).status_code!=200
   schema=client.get('/openapi.json',headers=headers).json()
   assert schema['components']['schemas']['Command']['properties']['action']
+
+
+def test_next_month_forecast_is_separate_from_actual_history(service):
+ seed(service)
+ before=service.stores('u1')[0].load('2026-09').model_dump()
+ result=service.execute(command('plan'))
+ facts=result['plan']['input_facts']
+ assert facts['planning_mode']=='next_month' and facts['source_period']=='2026-08'
+ assert facts['month']['income'] is None and facts['month']['categories']==[]
+ assert facts['month']['expected_income']['amount_cents']==800000
+ assert any(s['period']=='2026-08' for s in facts['history'])
+ assert service.stores('u1')[0].load('2026-09').model_dump()==before
+ service.execute(command('plan',action='confirm'))
+ adjustment=command('plan',payload={'planning_mode':'adjustment'})
+ adjusted=service.execute(adjustment)
+ assert adjusted['plan']['input_facts']['month']['spend_total_cents']==200000
+ assert service.thread(adjustment)!=service.thread(command('plan'))
+
+
+def test_forecast_requires_adjacent_final_review_and_fresh_inputs(service):
+ seed(service)
+ with pytest.raises(ValueError,match='上一月'):
+  service.execute(command('forecast',action='finish',period='2026-10',payload={'expected_income_cents':0,'obligations_reviewed':True}))
+ service.execute(command('forecast',action='finish',payload={'expected_income_cents':0,'obligations_reviewed':True}))
+ result=service.execute(command('forecast',action='confirm'))
+ assert result['confirmed'] and result['snapshot']['expected_income']['amount_cents']==0
+ assert service.state('u1','2026-09')['month_current']
+ assert not service.state('u1','2026-09')['month_draft_stale']
+ service.invalidate('u1')
+ with pytest.raises(ValueError,match='预计资料'):
+  service.execute(command('plan'))
+ assert not service.state('u1','2026-09')['forecast_current']
+
+
+def test_forecast_rejects_stale_review_after_source_bill_changes(service):
+ seed(service)
+ history=service.stores('u1')[0]
+ record=history.load('2026-08')
+ record.snapshot.income.amount_cents+=1
+ history.save(record)
+ with pytest.raises(ValueError,match='账单已更新'):
+  service.execute(command('forecast',action='finish',payload={'expected_income_cents':800000,'obligations_reviewed':True}))

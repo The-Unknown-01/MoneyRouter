@@ -9,6 +9,28 @@ from moneyrouter_agent.plan_agent import PlanAgent
 from moneyrouter_agent.config import Settings
 
 
+def test_long_plan_conversation_does_not_send_orphan_tool_results():
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from moneyrouter_agent.graph.wallet_build import recent_turn_messages
+
+    messages = [HumanMessage(content="旧方案")]
+    for i in range(12):
+        messages.extend([AIMessage(content="", tool_calls=[{
+            "name": "evaluate_candidate", "args": {}, "id": str(i)}]),
+            ToolMessage(content="校验结果", tool_call_id=str(i))])
+    latest = HumanMessage(content="请重新生成下月方案")
+    messages.append(latest)
+    sent = recent_turn_messages(messages)
+    assert sent[0] == latest
+    call_ids = set()
+    for message in sent:
+        call_ids.update(c["id"] for c in getattr(message, "tool_calls", []))
+        if isinstance(message, ToolMessage):
+            assert message.tool_call_id in call_ids
+    # A single long turn must also retain its calling assistant messages.
+    assert recent_turn_messages(messages[:-1])[0] == messages[0]
+
+
 def inputs():
     return PlanInputs(period="2026-07", as_of="2026-07-10", profile=Profile(income_cents=250000,
         horizon_months=36, max_loss_pct=10), snapshot=MonthSnapshot(period="2026-07",

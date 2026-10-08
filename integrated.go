@@ -87,6 +87,9 @@ func periodOf(r *http.Request) string {
 	p := r.FormValue("period")
 	if p == "" {
 		p = businessNow().Format("2006-01")
+		if r.URL.Path == "/ledger" || r.URL.Path == "/month" || r.URL.Path == "/review" || r.URL.Path == "/profile" {
+			p = previousPeriod(p)
+		}
 	}
 	return p
 }
@@ -98,10 +101,22 @@ func (a *app) integratedNextStep(id int64) (string, error) {
 	if s["profile"] == nil {
 		return "/profile", nil
 	}
-	if !yes(s["month_current"]) {
-		return "/month", nil
+	target := businessNow().Format("2006-01")
+	if s["confirmed_plan"] != nil || yes(s["forecast_current"]) {
+		return "/plan?period=" + target, nil
 	}
-	return "/plan", nil
+	source := previousPeriod(target)
+	prior, err := a.agentState(context.Background(), id, source)
+	if err != nil {
+		return "/ledger?period=" + source, nil
+	}
+	if yes(obj(prior["summary_result"])["confirmed"]) && str(obj(obj(prior["summary_result"])["summary"])["review_mode"]) == "final" {
+		return "/forecast?period=" + target, nil
+	}
+	if yes(obj(prior["month_result"])["confirmed"]) {
+		return "/review?period=" + source, nil
+	}
+	return "/ledger?period=" + source, nil
 }
 func (a *app) integratedRoutes() http.Handler {
 	mux := http.NewServeMux()
@@ -124,7 +139,7 @@ func (a *app) integratedRoutes() http.Handler {
 	mux.HandleFunc("POST /register", a.register)
 	mux.HandleFunc("POST /logout", a.withUser(a.logout))
 	mux.HandleFunc("GET /", a.withUser(a.startPage))
-	for _, path := range []string{"/profile", "/ledger", "/month", "/plan", "/review", "/chat"} {
+	for _, path := range []string{"/profile", "/ledger", "/month", "/forecast", "/plan", "/review", "/chat"} {
 		mux.HandleFunc("GET "+path, a.withUser(a.integratedPage))
 	}
 	mux.HandleFunc("POST /agent/{kind}", a.withUser(a.agentSubmit))
@@ -140,6 +155,9 @@ type uiField struct{ Key, Label, Value, Type string }
 type uiStat struct{ Label, Value string }
 type uiLine struct{ Label, Value string }
 type webData struct {
+	CanPlanNext                                                                                                             bool
+	SourcePeriod, PlanningMode, EntryDate, ForecastExpenses, ForecastEnvironment                                            string
+	Review                                                                                                                  *reviewDashboard
 	ReviewPlanVersion                                                                                                       string
 	PeriodLabel, PeriodStatus, NextPeriod, ReviewMode                                                                       string
 	PastPeriod, FuturePeriod, PlanReadOnly                                                                                  bool
@@ -158,7 +176,7 @@ type webData struct {
 	Awaiting, Confirmed, Stale, MonthCurrent, HasProfile, HasPlan, HasSummary                                               bool
 }
 
-var webTitles = map[string]string{"profile": "了解你", "ledger": "建立账本", "month": "核对本月实况", "plan": "你的方案", "review": "月度复盘", "chat": "方案答疑"}
+var webTitles = map[string]string{"profile": "了解你", "ledger": "建立历史账本", "month": "核对月度账单", "forecast": "补充下一月预期", "plan": "你的方案", "review": "月度复盘", "chat": "方案答疑"}
 var profileLabels = []uiField{
 	{"outcome_cents", "通常月开销（元）", "", "money"}, {"feature", "生活情况与家庭支持", "", "text"}, {"occupation", "职业", "", "text"}, {"income_basis", "收入口径", "", "text"}, {"income_cents", "每月收入 / 生活费（元）", "", "money"}, {"income_stable", "收入是否稳定", "", "bool"}, {"family_load", "是否承担家庭负担", "", "bool"}, {"debt_cents", "负债总额（元）", "", "money"}, {"reserve_cents", "现有应急储蓄（元）", "", "money"}, {"horizon_months", "预计使用期限（月）", "", "number"}, {"max_loss_pct", "可承受亏损（%）", "", "number"}, {"experience", "投资经验", "", "experience"}, {"goal", "你的目标", "", "text"}, {"notes", "备注 · 补充信息", "", "text"},
 }
@@ -179,7 +197,17 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 	d.PastPeriod, d.FuturePeriod = period < currentPeriod, period > currentPeriod
 	d.PlanReadOnly = kind == "plan" && d.PastPeriod
 	d.NextPeriod = nextPeriod(period)
-	d.PeriodLabel = map[string]string{"ledger": "账本月份", "month": "核对月份", "plan": "方案月份", "review": "复盘月份", "chat": "方案月份"}[kind]
+	d.CanPlanNext = d.NextPeriod != "" && d.NextPeriod >= currentPeriod
+	d.SourcePeriod = previousPeriod(period)
+	d.EntryDate = period + "-01"
+	if period == currentPeriod {
+		d.EntryDate = businessNow().Format("2006-01-02")
+	}
+	d.PlanningMode = "next_month"
+	if r.URL.Query().Get("mode") == "adjustment" {
+		d.PlanningMode = "adjustment"
+	}
+	d.PeriodLabel = map[string]string{"ledger": "账单月份 M", "month": "核对月份", "forecast": "方案月份 M+1", "plan": "方案月份", "review": "复盘月份", "chat": "方案月份"}[kind]
 	d.PeriodStatus = "进行中 · 实际数据截至资料截止日"
 	if d.PastPeriod {
 		d.PeriodStatus = "历史月份 · 整月资料仍需核对完整"
@@ -188,17 +216,30 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 		d.PeriodStatus = "未来月份 · 预计资料与预案"
 	}
 	d.ReviewMode = str(s["review_mode"])
+	if d.PastPeriod && d.ReviewMode == "final" {
+		d.PeriodStatus = "历史月份 · 整月实际资料已核对"
+	}
 	if kind == "month" {
 		d.Title = period + " 月度核对"
 	}
 	if kind == "plan" {
 		d.Title = period + " 资金方案"
+		if !d.PastPeriod && d.PlanningMode == "next_month" {
+			d.PeriodStatus = "预计安排 · 依据 " + d.SourcePeriod + " 完整账单与复盘"
+		}
 		if d.FuturePeriod {
 			d.Title += " · 预案"
 		}
 		if d.PastPeriod {
 			d.Title += " · 历史回看"
 		}
+	}
+	if kind == "forecast" {
+		d.PeriodStatus = "预计资料 · 依据 " + d.SourcePeriod + " 完整账单与复盘"
+		if notice := str(s["forecast_notice"]); notice != "" {
+			d.Warnings = append(d.Warnings, notice)
+		}
+		d.Title = period + " 预计资料"
 	}
 	if kind == "review" {
 		d.Title = period + " 阶段回顾"
@@ -229,6 +270,10 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 	}
 	d.Awaiting = yes(d.Result["awaiting_confirmation"])
 	d.Confirmed = yes(d.Result["confirmed"])
+	if kind == "forecast" && len(d.Result) > 0 && num(d.Result["revision"]) != num(s["revision"]) {
+		d.Awaiting, d.Confirmed = false, false
+		d.Warnings = append(d.Warnings, "依据已更新，请重新整理并确认预计资料。")
+	}
 	if kind == "plan" && d.Stale {
 		d.Awaiting = false
 	}
@@ -336,6 +381,27 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 		allocation := obj(snapshot["allocation"])
 		d.Lines = append(d.Lines, uiStat{"保留储蓄", displayCents(allocation["non_invested_cents"])}, uiStat{"新增投资", displayCents(allocation["invested_cents"])})
 	}
+	if kind == "forecast" {
+		snapshot := obj(d.Result["snapshot"])
+		d.Stats = []uiStat{{"账单依据月份 M", d.SourcePeriod}, {"方案月份 M+1", period}, {"预计整月收入", displayCents(obj(snapshot["expected_income"])["amount_cents"])}}
+		for _, field := range []struct {
+			key   string
+			value any
+		}{{"expected_income_cents", obj(snapshot["expected_income"])["amount_cents"]}, {"additional_funds_cents", snapshot["additional_funds_cents"]}} {
+			value := ""
+			if field.value != nil {
+				value = fmt.Sprintf("%d.%02d", num(field.value)/100, num(field.value)%100)
+			}
+			d.Fields = append(d.Fields, uiField{Key: field.key, Value: value})
+		}
+		for _, value := range arr(snapshot["obligations"]) {
+			o := obj(value)
+			d.ForecastExpenses += fmt.Sprintf("%s|%s|%d.%02d\n", str(o["category"]), str(o["label"]), num(o["amount_cents"])/100, num(o["amount_cents"])%100)
+		}
+		for _, value := range arr(snapshot["environment"]) {
+			d.ForecastEnvironment += str(obj(value)["label"]) + "\n"
+		}
+	}
 	if kind == "plan" {
 		p := obj(d.Result["plan"])
 		if len(p) == 0 {
@@ -407,7 +473,7 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 			d.Lines = nil
 		}
 		if str(d.Result["clarification_target"]) == "month" {
-			d.Warnings = append(d.Warnings, "请在本月实况中补充助手提出的问题，确认后重新生成。")
+			d.Warnings = append(d.Warnings, "请按助手问题补充方案月份的预计资料；当月调整则补充实际资料。")
 		}
 		for _, v := range arr(p["warnings"]) {
 			d.Warnings = append(d.Warnings, str(v))
@@ -426,6 +492,10 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 			d.ReviewPlanVersion = str(obj(arr(s["versions"])[0])["version"])
 		}
 		d.HasSummary = len(summary) > 0
+		if d.HasSummary {
+			d.Review = buildReviewDashboard(summary)
+			charts["review"] = summary
+		}
 		d.Headline = str(summary["headline"])
 		d.Narrative = str(summary["narrative"])
 		for _, section := range arr(summary["sections"]) {
@@ -509,7 +579,7 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	action := r.FormValue("action")
 	payload := map[string]any{}
-	if !strings.Contains("|profile|manual|month|finance|plan|summary|chat|clean|", "|"+kind+"|") {
+	if !strings.Contains("|profile|manual|month|forecast|finance|plan|summary|chat|clean|", "|"+kind+"|") {
 		http.NotFound(w, r)
 		return
 	}
@@ -576,10 +646,52 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		payload["revision"] = s["revision"]
-		if !yes(s["month_current"]) {
-			a.webError(w, r, "请先核对并确认最新的月度实况。")
+		mode := r.FormValue("planning_mode")
+		if mode == "" {
+			mode = "next_month"
+		}
+		payload["planning_mode"] = mode
+		ready := yes(s["forecast_current"])
+		if mode == "adjustment" {
+			ready = yes(s["month_current"]) && s["confirmed_plan"] != nil
+		}
+		if !ready {
+			a.webError(w, r, "请先复盘 M 月并确认 M+1 月预计资料；当月调整须确认最新当月实况。")
 			return
 		}
+	}
+	if kind == "forecast" && action != "confirm" {
+		for _, key := range []string{"expected_income_cents", "additional_funds_cents"} {
+			if value := r.FormValue(key); value != "" {
+				amount, e := parseMoney(value)
+				if e != nil || amount < 0 {
+					a.webError(w, r, "请检查预计金额。")
+					return
+				}
+				payload[key] = amount
+			}
+		}
+		payload["obligations_reviewed"] = r.FormValue("obligations_reviewed") == "true"
+		payload["additional_funds_evidence"] = r.FormValue("additional_funds_evidence")
+		payload["environment"] = r.FormValue("environment")
+		obligations := []any{}
+		for i, line := range strings.Split(r.FormValue("expenses"), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			parts := strings.Split(strings.TrimSpace(line), "|")
+			if len(parts) != 3 {
+				a.webError(w, r, "每笔待支付费用请按 分类|名称|金额 填写。")
+				return
+			}
+			amount, e := parseMoney(strings.TrimSpace(parts[2]))
+			if e != nil || amount < 0 || strings.TrimSpace(parts[1]) == "" {
+				a.webError(w, r, "请检查待支付费用名称和金额。")
+				return
+			}
+			obligations = append(obligations, map[string]any{"id": fmt.Sprintf("forecast-%d", i), "category": strings.TrimSpace(parts[0]), "label": strings.TrimSpace(parts[1]), "amount_cents": amount, "evidence": "用户确认的目标月待支付费用"})
+		}
+		payload["obligations"] = obligations
 	}
 	if kind == "month" && action == "finish" {
 		if r.FormValue("coverage_complete") == "true" {
@@ -639,6 +751,10 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 	a.jobFragment(w, r, jobID, kind, period)
 }
 func (a *app) jobFragment(w http.ResponseWriter, r *http.Request, id, kind, period string) {
+	if r.Header.Get("HX-Request") != "true" {
+		http.Redirect(w, r, "/"+kindPage(kind)+"?period="+url.QueryEscape(period), http.StatusSeeOther)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="job-status" id="operation" hx-get="/jobs/%s" hx-trigger="every 2s" hx-target="this" hx-select="unset" hx-push-url="false" hx-swap="outerHTML" role="status"><span class="loading loading-spinner loading-sm"></span><span>正在处理，请稍候…</span><small>完成后会更新这里。你也可以离开，稍后回来查看。</small></div>`, templateEscape(id))
 }
@@ -675,6 +791,9 @@ func (a *app) agentPoll(w http.ResponseWriter, r *http.Request) {
 		a.webError(w, r, str(j["error"]))
 	default:
 		path := "/" + kindPage(kind) + "?period=" + period
+		if kind == "plan" && str(obj(j["result"])["planning_mode"]) == "adjustment" {
+			path += "&mode=adjustment"
+		}
 		if kind == "clean" {
 			path += "&preview=" + id
 		}

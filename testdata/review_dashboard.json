@@ -1,0 +1,27 @@
+{
+  "period":"2026-09", "review_mode":"final", "generated_at":"2026-10-01",
+  "headline":"本月净攒 2,800 元，完成储蓄计划的 112%；支出比上月少了 620 元。",
+  "sections":["本月实际收入 6,800 元，实际支出 4,000 元。净结余 2,800 元，超过原计划 300 元。","餐饮支出减少 420 元，是本月消费变化的主要来源。居住费用保持稳定；购物钱包超出预算 80 元，下月可结合需求重新安排。","本月留作储蓄 2,000 元，新增投资本金 800 元，投资盈亏为 +128 元。市场收益单独记录，不重复计入净结余。"],
+  "insights":{
+    "schema_version":1, "period":"2026-09", "previous_period":"2026-08", "comparable":true,"previous_available":true,"review_mode":"final","as_of":"2026-09-30",
+    "metrics":[
+      {"id":"income_cents","current_cents":680000,"previous_cents":650000,"delta_cents":30000,"delta_pct":4.62},
+      {"id":"spend_total_cents","current_cents":400000,"previous_cents":462000,"delta_cents":-62000,"delta_pct":-13.42},
+      {"id":"balance_cents","current_cents":280000,"previous_cents":188000,"delta_cents":92000,"delta_pct":48.94},
+      {"id":"investment_return_cents","current_cents":12800,"previous_cents":-5600,"delta_cents":18400,"delta_pct":-328.57}
+    ],
+    "category_changes":[{"id":"餐饮","previous_cents":160000,"current_cents":118000,"delta_cents":-42000},{"id":"居住","previous_cents":160000,"current_cents":160000,"delta_cents":0},{"id":"购物","previous_cents":88000,"current_cents":68000,"delta_cents":-20000}],
+    "goal":{"goal":"攒下第一笔 30,000 元应急储蓄","target_cents":3000000,"planned_this_month_cents":250000,"saved_this_month_cents":280000,"saved_to_date_cents":1680000,"progress_pct":56,"on_track":true},
+    "accounting":{"surplus_cents":280000,"retained_cents":200000,"invested_cents":80000,"market_return_cents":12800},
+    "milestones":[{"id":"goal_on_track:2026-09","label":"本月目标储蓄进度符合计划"}],
+    "wallet_execution":[
+      {"id":"food","name":"好好吃饭","kind":"expense","planned_cents":150000,"actual_cents":118000},
+      {"id":"living","name":"安心居住","kind":"expense","planned_cents":160000,"actual_cents":160000},
+      {"id":"shopping","name":"生活小确幸","kind":"expense","planned_cents":60000,"actual_cents":68000},
+      {"id":"saving","name":"应急储蓄","kind":"savings","planned_cents":170000,"actual_cents":200000},
+      {"id":"invest","name":"长期积累","kind":"investment","planned_cents":80000,"actual_cents":80000}
+    ]
+  },
+  "diff":{"plan_version":1,"layers":[{"layer":"income","planned_cents":650000,"actual_cents":680000},{"layer":"necessary","planned_cents":350000,"actual_cents":332000},{"layer":"wants","planned_cents":50000,"actual_cents":68000},{"layer":"savings","planned_cents":250000,"actual_cents":280000}],
+    "categories":[{"category":"餐饮","planned_cents":150000,"actual_cents":118000},{"category":"居住","planned_cents":160000,"actual_cents":160000},{"category":"交通","planned_cents":60000,"actual_cents":54000},{"category":"购物","planned_cents":60000,"actual_cents":68000}]}
+}
