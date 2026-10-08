@@ -4,6 +4,7 @@
 .flow-header-inner{max-width:970px;margin:0 auto;min-height:76px;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px}
 .flow-brand{display:inline-flex;align-items:center;gap:11px;color:var(--ink)}
 .flow-brand .brand-mark{width:38px;height:38px;font-size:24px}
+img.brand-mark{display:block;object-fit:contain;background:transparent;border-radius:0}
 .flow-brand strong,.flow-brand small{display:block}
 .flow-brand strong{font-size:19px;letter-spacing:.11em;line-height:1.2}
 .flow-brand small{font-size:10px;color:#819991;letter-spacing:.03em}

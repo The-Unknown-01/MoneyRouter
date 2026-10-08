@@ -24,7 +24,7 @@ from ..domain.finance import (
 )
 
 PLAN_SYSTEM = """\
-你是 MoneyRouter 的金融信息检索规划员。
+你是薪安理得的金融信息检索规划员。
 
 系统**已经**从结构化数据源取回了一批宏观与市场指标（国债收益率、LPR、Shibor、
 CPI/PPI、主要指数估值与历史分位、黄金、汇率、原油、波动率等）。

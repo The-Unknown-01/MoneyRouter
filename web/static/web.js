@@ -8,7 +8,7 @@
  const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
  function initialize(root=document) {
   const main=document.querySelector('#app-main');
-  if(main){const heading=main.querySelector('h1');if(heading)document.title=heading.textContent.trim()+' · 稳序';const period=main.querySelector('[name=period]');if(period)main.dataset.period=period.value;}
+  if(main){const heading=main.querySelector('h1');if(heading)document.title=heading.textContent.trim()+' · 薪安理得';const period=main.querySelector('[name=period]');if(period)main.dataset.period=period.value;}
   const dataElement=document.querySelector('#chart-data');
   const data=dataElement?JSON.parse(dataElement.dataset.json):{};
   root.querySelectorAll('[data-chart]').forEach(element => {

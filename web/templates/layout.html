@@ -4,7 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f7f9f7">
-  <title>{{.Title}} · 稳序</title>
+  <link rel="icon" type="image/png" href="/static/icon.png">
+  <link rel="apple-touch-icon" href="/static/icon.png">
+  <title>{{.Title}} · 薪安理得</title>
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/flow.css">
   <link rel="stylesheet" href="/static/motion.css">
@@ -15,7 +17,7 @@
 {{if .User}}
   <header class="flow-header">
     <div class="flow-header-inner">
-      <a class="flow-brand" href="/" aria-label="回到当前步骤"><span class="brand-mark">◈</span><span><strong>稳序</strong><small>一步一步，安排好每笔钱</small></span></a>
+      <a class="flow-brand" href="/" aria-label="回到当前步骤"><img class="brand-mark" src="/static/icon.png" alt="" width="38" height="38"><span><strong>薪安理得</strong><small>一步一步，安排好每笔钱</small></span></a>
       <div class="flow-account"><span>{{.User.Username}}</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">退出</button></form></div>
     </div>
   </header>

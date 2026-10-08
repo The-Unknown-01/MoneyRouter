@@ -1,7 +1,7 @@
 [project]
 name = "moneyrouter-agent"
 version = "0.1.0"
-description = "MoneyRouter 画像访谈 Agent（Python + LangGraph）"
+description = "薪安理得画像访谈 Agent（Python + LangGraph）"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

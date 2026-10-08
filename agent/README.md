@@ -1,6 +1,6 @@
-# MoneyRouter Agent（画像访谈 + 金融情况 + 本月实况 + 方案生成）
+# 薪安理得 Agent（画像访谈 + 金融情况 + 本月实况 + 方案生成）
 
-用 Python + LangGraph 实现的后端 agent 逻辑，是 MoneyRouter（工行杯赛题 08「财富管理服务」）的一块。
+用 Python + LangGraph 实现的后端 agent 逻辑，是薪安理得（工行杯赛题 08「财富管理服务」）的一块。
 目前包含四个**独立可跑**的子能力，暂不依赖 Go 服务：
 
 | 子能力 | 入口 | 做什么 |
@@ -28,7 +28,7 @@
 ## 快速开始
 
 ```bash
-cd MoneyRouter/agent
+cd agent  # 在仓库根目录执行
 
 # 1) 依赖（用受管 Python 3.13 建虚拟环境）
 "C:/Users/xbf/.workbuddy/binaries/python/versions/3.13.12/python.exe" -m venv .venv

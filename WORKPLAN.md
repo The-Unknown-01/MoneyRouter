@@ -1,4 +1,4 @@
-# 稳序 · MoneyRouter 工作计划
+# 薪安理得 · 工作计划
 
 更新：2026-10-08。当前基线：Go Web → Python 内部服务 → LangGraph；钱包方案使用 schema v2，月份修正已纳入代码。
 

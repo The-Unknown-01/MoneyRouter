@@ -17,7 +17,7 @@ async def lifespan(app):
     yield
     app.state.service.close()
 
-app = FastAPI(title='MoneyRouter private API', version=VERSION, lifespan=lifespan)
+app = FastAPI(title='薪安理得 private API', version=VERSION, lifespan=lifespan)
 
 @app.middleware('http')
 async def private(request: Request, call_next):

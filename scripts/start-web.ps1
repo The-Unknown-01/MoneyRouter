@@ -68,7 +68,7 @@ try {
    $keyQuit=$false
    try { [Console]::TreatControlCAsInput=$false } catch { }
   }
-  Write-Host "稳序已启动：http://$Listen"
+  Write-Host "薪安理得已启动：http://$Listen"
   if($keyQuit){ Write-Host '按 Q / Esc / Ctrl+C 停止服务；直接关闭本窗口也会同时停止两个进程。' }
   else { Write-Host '直接关闭本窗口会同时停止两个进程，也可运行 stop.cmd 停止。' }
   while($true){

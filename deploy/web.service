@@ -1,5 +1,5 @@
 [Unit]
-Description=MoneyRouter Go Web
+Description=薪安理得 Go Web
 After=network.target moneyrouter-agent.service
 Requires=moneyrouter-agent.service
 

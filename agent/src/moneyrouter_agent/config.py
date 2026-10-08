@@ -60,7 +60,7 @@ DEFAULT_SEARCH_DROP_LOW_TIER = True
 
 _BOCHA_FRESHNESS = ("noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear")
 
-# <repo>/MoneyRouter/agent
+# <repo>/agent
 AGENT_ROOT = Path(__file__).resolve().parents[2]
 
 # 官方支持的力度取值；其余别名按官方映射表归一化

@@ -213,7 +213,7 @@ def build_agent(args: argparse.Namespace) -> MonthAgent:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="MoneyRouter 本月实况 Agent —— 多轮 CLI 演练")
+    parser = argparse.ArgumentParser(description="薪安理得本月实况 Agent —— 多轮 CLI 演练")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--mock", action="store_true", help="用假模型演练（默认，不联网）")
     group.add_argument("--real", action="store_true", help="连真实 DeepSeek（需密钥）")

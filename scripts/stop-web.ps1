@@ -35,9 +35,9 @@ foreach ($port in $ports) {
 }
 
 if ($found.Count -eq 0) {
- Write-Host '未发现运行中的稳序服务。'
+ Write-Host '未发现运行中的薪安理得服务。'
 } else {
- Write-Host "发现 $($found.Count) 个稳序服务进程，正在停止……"
+ Write-Host "发现 $($found.Count) 个薪安理得服务进程，正在停止……"
  foreach ($owner in @($found.Keys)) {
   $name=$found[$owner]
   try {
