@@ -32,7 +32,7 @@ func openDatabase(path string) (*database, error) {
 	schema := []string{
 		`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, csrf TEXT NOT NULL, expires_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, date TEXT NOT NULL, direction TEXT NOT NULL CHECK(direction IN ('income','expense')), amount_cents INTEGER NOT NULL CHECK(amount_cents > 0), category TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', source TEXT NOT NULL, fingerprint TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, date TEXT NOT NULL, direction TEXT NOT NULL CHECK(direction IN ('income','expense','transfer')), amount_cents INTEGER NOT NULL CHECK(amount_cents > 0), category TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', source TEXT NOT NULL, fingerprint TEXT, created_at TEXT NOT NULL)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS tx_dedupe ON transactions(user_id,fingerprint) WHERE fingerprint IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS tx_user_date ON transactions(user_id,date DESC)`,
 		`CREATE TABLE IF NOT EXISTS profiles (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, income_cents INTEGER NOT NULL DEFAULT 0, stable_income INTEGER NOT NULL DEFAULT 1, family_load INTEGER NOT NULL DEFAULT 0, debt_cents INTEGER NOT NULL DEFAULT 0, reserve_cents INTEGER NOT NULL DEFAULT 0, horizon_months INTEGER NOT NULL DEFAULT 36, max_loss_pct INTEGER NOT NULL DEFAULT 0, experience TEXT NOT NULL DEFAULT 'none', goal TEXT NOT NULL DEFAULT '', confirmed INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)`,
@@ -40,6 +40,8 @@ func openDatabase(path string) (*database, error) {
 		`CREATE INDEX IF NOT EXISTS plans_user ON plans(user_id,version DESC)`,
 		`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, scope TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS messages_user ON messages(user_id,id DESC)`,
+		`CREATE TABLE IF NOT EXISTS bridge_jobs (id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL,period TEXT NOT NULL,applied INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS bill_documents(user_id INTEGER NOT NULL REFERENCES users(id),period TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(user_id,period))`,
 	}
 	for _, statement := range schema {
 		if _, err := db.Exec(statement); err != nil {

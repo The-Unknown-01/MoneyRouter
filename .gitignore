@@ -9,3 +9,13 @@
 /.tools/
 *.exe
 *.log
+/node_modules/
+/data-web/
+/backups/
+/.acceptance/
+/agent/.venv-web/
+/agent/.tmp/
+/agent/.data/web/
+
+/.test-tmp/
+/agent/.test-tmp/

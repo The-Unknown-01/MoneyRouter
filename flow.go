@@ -7,6 +7,9 @@ import (
 // nextStep is the only entry point after login. It preserves progress when a
 // user returns and keeps the product journey linear without a dashboard.
 func (a *app) nextStep(userID int64) (string, error) {
+	if a.bridge != nil {
+		return a.integratedNextStep(userID)
+	}
 	p, err := a.getProfile(userID)
 	if err != nil {
 		return "", err
