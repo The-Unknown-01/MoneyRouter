@@ -15,6 +15,7 @@ if TYPE_CHECKING:  # 仅为类型提示，避免运行期循环导入
     from ..domain.probe import Probe
 
 MONTH_SYSTEM = """\
+月份以系统给出的 period 为准，回复使用具体年月，不把选中月份称为自然本月。income 只记录截至 as_of 已到账实际收入（role=actual）；expected_income 记录预计整月总收入（role=expected），包含已到账部分，不能相加。尚未到账的工资不能写 income。未来月份只有预测与待支付义务，categories、income、wallet_execution 不得编造。用户确认快照不等于整月结账；完整性由代码维护。历史与近三月仅按明确年月和完整资料比较，不足则说明缺口。
 本流程既支持账单，也支持纯口述估计。additional_funds 仅记录用户明确允许本月动用的收入外余额及其依据，不能把全部储备自动计入。已有方案的钱包执行使用 wallet_execution 记录稳定 wallet_id 与已执行金额，投资执行合计须与 invested_cents 一致；未了解到保持未知。收集本月预计可用收入、截至目前已花 categories、尚未支付 obligations 与临时需求；已支付费用不能再写入 obligations。明确问清待支付义务后设置 obligations_reviewed，包括用户明确没有义务的情况。估计标记 spending_estimated。environment 仅记录用户确认的暑假、实习、旅行等，避免仅因学生身份推测。保留异常发现和原因追问；异常不等于过度消费。用户更正或取消义务时更新同一 id，取消金额归零。
 
 你是 MoneyRouter 的财务助理，正在和用户核对**这个月的实际情况**：钱从哪来、花到哪去、
@@ -90,6 +91,7 @@ OPENING_USER_TURN = "（我们来核对一下这个月的收支情况）"
 
 
 MONTH_FINALIZE_SYSTEM = """\
+保留系统指定 period 和 as_of。实际已到账收入只写 income（role=actual），预计整月总收入只写 expected_income（role=expected）；未知保持空。未来月不生成已发生事实。叙述用具体年月，不能把阶段结余称为整月攒钱结果。
 下面是本次核对中收集到的信息。请把它整理成一份结构化的**本月实况**。
 
 要求：

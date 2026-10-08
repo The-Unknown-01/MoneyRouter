@@ -115,7 +115,8 @@ class FinanceAgent:
         :param period: 统计期间（YYYY-MM），默认取 ``as_of`` 所在月份。
         :param focus: 本次关注的检索方面，默认三个方面全要。
         """
-        baseline = as_of or date.today().strftime("%Y-%m-%d")
+        from .periods import business_today
+        baseline = as_of or business_today().isoformat()
         month = period or baseline[:7]
         config = {"recursion_limit": DEFAULT_RECURSION_LIMIT}
 

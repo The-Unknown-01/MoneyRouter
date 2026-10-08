@@ -73,6 +73,7 @@ class ParsedBill(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="目标统计期间 YYYY-MM。")
+    as_of: str = ""
     coverage_complete: bool | None = None
     coverage_start: str = ""
     coverage_end: str = ""
@@ -97,6 +98,7 @@ class ParsedBill(BaseModel):
         """把解析结果转成"文件来源"的月度快照（供 ingest 节点并入）。"""
         return MonthSnapshot(
             period=period or self.period,
+            as_of=self.as_of,
             coverage_complete=self.coverage_complete,
             coverage_start=self.coverage_start, coverage_end=self.coverage_end,
             review_required_count=self.review_required_count, accounting_basis=self.accounting_basis,

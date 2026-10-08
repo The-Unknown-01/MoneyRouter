@@ -335,6 +335,7 @@ class DossierParser:
             parsed.investments = _parse_investments(investments, parsed.warnings)
 
         parsed.period = target
+        parsed.as_of = str(document.get("as_of") or "")
         coverage = document.get("coverage") or {}
         if isinstance(coverage, dict):
             parsed.coverage_complete = coverage.get("complete") if isinstance(coverage.get("complete"), bool) else None

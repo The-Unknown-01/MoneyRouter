@@ -41,6 +41,7 @@ from moneyrouter_agent.tools.market_data import FetchOutcome
 from moneyrouter_agent.tools.bill_cleaner import clean as clean_bills, documents_to_text
 from moneyrouter_agent.tools.bill_classify import make_deepseek_classifier
 from moneyrouter_agent.tools.bills import parse_bill
+from moneyrouter_agent.periods import period_bounds
 
 
 PROFILE_TEXT = (
@@ -58,6 +59,7 @@ MONTH_TEXT = (
 def dossier(period: str, wants: int) -> str:
     return json.dumps({
         "period": period,
+        "coverage": {"complete": True, "start": period + "-01", "end": period_bounds(period)[1].isoformat()},
         "cashflow": [
             {"date": f"{period}-05", "direction": "income", "amount": 10000, "category": "工资"},
             {"date": f"{period}-06", "direction": "expense", "amount": 2000, "category": "居住"},
@@ -142,7 +144,7 @@ def run(output: Path, *, real: bool = False, alipay: Path | None = None, wechat:
 
         profile = Profile(occupation="程序员", income_cents=1_000_000, income_basis="税后月薪",
                           income_stable=True, family_load=False, debt_cents=0, reserve_cents=2_000_000,
-                          horizon_months=36, max_loss_pct=10, experience="some", goal="攒首付")
+                          horizon_months=36, max_loss_pct=10, experience="some", goal="攒首付",outcome_cents=600000,feature="独立生活，不用养家")
         profile_agent = ProfileAgent(settings=settings, **({} if real else {
             "turn_runner": Sequence(TurnDecision(reply="请确认目标期限。", understanding=profile),
                                     TurnDecision(reply="已了解。", understanding=profile, ready_to_finalize=True)),

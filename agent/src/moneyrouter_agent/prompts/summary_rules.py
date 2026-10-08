@@ -42,6 +42,8 @@ def lesson_statement(kind: str) -> str:
 
 def render_headline(diff: "PlanActualDiff") -> str:
     """一句话结论——只复述代码算出来的数字。"""
+    if diff.review_mode != "final":
+        return f"{diff.period} 阶段回顾：仅展示已发生情况，整月执行结果尚未确定。"
     if not diff.plan_available:
         return f"{diff.period} 的实际情况已整理，本月没有可对照的方案。"
     overs = [
@@ -67,7 +69,10 @@ def render_sections(diff: "PlanActualDiff") -> list[str]:
         if item.actual_cents is None:
             lines.append(f"{label}计划 {format_yuan(item.planned_cents)} 元，实际未了解到。")
             continue
-        delta = item.delta_cents or 0
+        if item.delta_cents is None:
+            lines.append(f"{label}整月计划 {format_yuan(item.planned_cents)} 元，截至资料截止日实际 {format_yuan(item.actual_cents)} 元；不作整月达标判断。")
+            continue
+        delta = item.delta_cents
         if delta > 0:
             lines.append(
                 f"{label}计划 {format_yuan(item.planned_cents)} 元，实际 {format_yuan(item.actual_cents)} 元，"

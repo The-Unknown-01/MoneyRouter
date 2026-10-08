@@ -10,6 +10,7 @@ if errorlevel 1 (
 if errorlevel 1 (
   echo.
   echo Startup failed. Check the message above and agent-service-error.log.
+  echo If a port is already in use, run stop.cmd first to clear leftover services.
   pause
   exit /b 1
 )

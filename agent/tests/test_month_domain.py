@@ -224,16 +224,17 @@ def test_recompute_overwrites_model_supplied_derived_fields():
 def test_build_baselines_from_budget_and_history():
     categories = [CategorySpend(category="餐饮", amount_cents=300_000)]
     history = [
-        MonthSnapshot(period="2026-07", categories=[CategorySpend(category="餐饮", amount_cents=100_000)]),
-        MonthSnapshot(period="2026-08", categories=[CategorySpend(category="餐饮", amount_cents=200_000)]),
+        MonthSnapshot(period="2026-06", coverage_complete=True, categories=[]),
+        MonthSnapshot(period="2026-07", coverage_complete=True, categories=[CategorySpend(category="餐饮", amount_cents=100_000)]),
+        MonthSnapshot(period="2026-08", coverage_complete=True, categories=[CategorySpend(category="餐饮", amount_cents=200_000)]),
     ]
-    baselines = build_baselines(categories, budget={"餐饮": 200_000}, history=history)
+    baselines = build_baselines(categories, budget={"餐饮": 200_000}, history=history, period="2026-09")
     by_metric = {b.metric: b for b in baselines}
 
     assert by_metric["budget"].delta_cents == 100_000
     assert by_metric["budget"].delta_pct == 50.0
     assert by_metric["last_month"].amount_cents == 200_000
-    assert by_metric["trailing_3m_avg"].amount_cents == 150_000  # (100+200)/2
+    assert by_metric["trailing_3m_avg"].amount_cents == 100_000  # (0+100+200)/3
     assert category_map(categories) == {"餐饮": 300_000}
 
 

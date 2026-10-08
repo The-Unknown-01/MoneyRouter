@@ -42,6 +42,7 @@ def _snapshot(period: str, *, dining_cents: int = 10_000, income_cents: int = 10
     return recompute(
         MonthSnapshot(
             period=period,
+            coverage_complete=True,
             income=IncomeFact(amount_cents=income_cents),
             categories=[CategorySpend(category="餐饮", amount_cents=dining_cents)],
         )
@@ -268,7 +269,10 @@ def test_history_feeds_last_month_baseline_previously_injected_only(tmp_path):
         store=store,
     )
 
-    result = agent.turn("h5", "开始", bill=DOSSIER, period=PERIOD)
+    import json
+    document = json.loads(DOSSIER)
+    document["coverage"] = {"complete": True, "start": "2026-09-01", "end": "2026-09-30"}
+    result = agent.turn("h5", "开始", bill=json.dumps(document), period=PERIOD)
 
     metrics = {b.metric for b in result.snapshot.baselines}
     assert "last_month" in metrics  # 历史自动喂进来了，不再需要外部注入

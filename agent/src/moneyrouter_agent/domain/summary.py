@@ -24,7 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .experience import ExperiencePack, Lesson
 from .money import format_yuan
-from .month import MonthSnapshot, category_map
+from ..periods import business_today
+from .month import MonthSnapshot, category_map, actual_income_cents, review_mode
 from .plan import NECESSARY_CATEGORIES, OPTIONAL_CATEGORIES
 from .profile_delta import (
     EVENT_TYPES,
@@ -86,6 +87,8 @@ class PlanActualDiff(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="对账月份 YYYY-MM。")
+    review_mode: Literal["stage", "final", "forecast"] = "final"
+    plan_version: int | None = None
     insights: dict = Field(default_factory=dict, description="可视化就绪：月度比较、钱包执行、目标与有证据的成果")
     plan_available: bool = Field(default=False, description="是否拿到了当月方案；缺则经验只限不依赖计划的类型。")
     plan_period: str = Field(default="", description="注入方案所属的期间，用于核对是不是同一个月。")
@@ -168,6 +171,7 @@ class MonthlySummary(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="复盘月份 YYYY-MM。")
+    review_mode: Literal["stage", "final", "forecast"] = "stage"
     insights: dict = Field(default_factory=dict)
     generated_at: str = Field(default="", description="生成日期 YYYY-MM-DD，代码填。")
     headline: str = Field(default="", description="一句话结论。")
@@ -206,7 +210,9 @@ def _category_totals(snapshot: MonthSnapshot) -> dict[str, int]:
 def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str = "") -> PlanActualDiff:
     """算「计划 vs 实际」。``plan`` 可以是方案对象，也可以是 ``None``（未注入）。"""
     target = period or snapshot.period or ""
-    diff = PlanActualDiff(period=target, plan_period=getattr(plan, "period", "") or "")
+    diff = PlanActualDiff(period=target, plan_period=getattr(plan, "period", "") or "", review_mode=review_mode(snapshot), plan_version=getattr(plan, "version", None))
+    if diff.review_mode != "final":
+        diff.notes.append(f"{target} 为阶段回顾：月份尚未结束或整月实际资料未核对完整，不能判断整月储蓄达标，也不产生下月经验。")
     if plan is not None and diff.plan_period and target and diff.plan_period != target:
         diff.notes.append(f"注入的方案属于 {diff.plan_period}，与本期的 {target} 不是同一个月，已排除该方案。")
         plan = None
@@ -220,7 +226,7 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
     optional_actual = sum(
         amount for category, amount in actual_by_category.items() if category in OPTIONAL_CATEGORIES
     )
-    income_actual = snapshot.income.amount_cents if snapshot.income is not None else None
+    income_actual = actual_income_cents(snapshot)
 
     # —— 口径不同、不做偏差的事实 ——
     allocation = snapshot.allocation
@@ -231,7 +237,7 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
 
     goal = snapshot.goal_alignment
     diff.goal_progress_pct = goal.progress_pct
-    diff.goal_on_track = goal.on_track
+    diff.goal_on_track = goal.on_track if diff.review_mode == "final" else None
 
     if plan is None:
         diff.plan_available = False
@@ -297,7 +303,7 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
     categories = sorted(set(planned_by_category) | set(actual_by_category))
     for category in categories:
         planned = planned_by_category.get(category)
-        actual = actual_by_category.get(category)
+        actual = actual_by_category.get(category, 0 if snapshot.coverage_complete is True else None)
         delta = (actual - planned) if (planned is not None and actual is not None) else None
         diff.categories.append(
             CategoryDiff(
@@ -311,6 +317,12 @@ def build_diff(snapshot: MonthSnapshot, *, plan: Any | None = None, period: str 
     if not diff.budget_available:
         diff.notes.append("没有分类级预算，无法逐类比较。")
 
+    if diff.review_mode != "final":
+        for layer in diff.layers:
+            # Cumulative spending above a full-month cap is actionable; a
+            # partial-month income/savings shortfall is not a final deviation.
+            if layer.layer in {"income", "savings"}:
+                layer.delta_cents = layer.delta_pct = None
     return diff
 
 
@@ -356,6 +368,8 @@ def build_candidates(diff: PlanActualDiff, *, period: str = "") -> list[Lesson]:
     注意 `custom` **永不产出**：它在 `apply_lessons` 里不改任何算法，却会被记进
     `Plan.lessons_applied` 与来源标签，属于误导性泄漏。分类级影响只留在画像事件的 effects 里。
     """
+    if diff.review_mode != "final":
+        return []
     target = period or diff.period
     if not target:
         return []
@@ -473,7 +487,7 @@ def merge_pack(
     version = 1 if existing is None else int(existing.version or 0) + 1
     return ExperiencePack(
         version=version,
-        generated_at=date.today().isoformat(),
+        generated_at=business_today().isoformat(),
         from_period=max(periods) if periods else period,
         lessons=merged,
         notes=notes or (existing.notes if existing is not None else ""),

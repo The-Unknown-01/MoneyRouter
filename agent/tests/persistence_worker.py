@@ -22,7 +22,8 @@ kind, phase, root = sys.argv[1:]
 root = Path(root)
 settings = Settings(api_key="scripted")
 profile = Profile(income_cents=1000000, income_stable=True, debt_cents=0, reserve_cents=2000000,
-                  max_loss_pct=10, horizon_months=36, experience="some", family_load=False)
+                  max_loss_pct=10, horizon_months=36, experience="some", family_load=False,
+                  occupation="程序员",income_basis="工资",outcome_cents=800000,feature="独立生活",goal="攒钱")
 snap = MonthSnapshot(period="2026-09", obligations_reviewed=True, income=IncomeFact(amount_cents=1000000),
                      categories=[CategorySpend(category="居住",amount_cents=300000), CategorySpend(category="购物",amount_cents=500000)])
 inputs = PlanInputs(profile=profile, snapshot=snap, period="2026-09", debt_payment_cents=0)

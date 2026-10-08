@@ -40,6 +40,7 @@ PERIOD = "2026-09"
 def _snapshot(**over) -> MonthSnapshot:
     base: dict = dict(
         period=PERIOD,
+        coverage_complete=True,
         income=IncomeFact(amount_cents=1_000_000),
         categories=[
             CategorySpend(category="餐饮", amount_cents=300_000),

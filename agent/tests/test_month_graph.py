@@ -384,7 +384,7 @@ def test_goal_alignment_is_computed_from_injection():
 
     assert ga.saved_this_month_cents == 549_950  # 800000 - 250050
     assert ga.progress_pct == 20.0
-    assert ga.on_track is True
+    assert ga.on_track is None  # This CSV has no confirmed full-month coverage.
     assert ga.projected_months == 2  # (100万-20万)/54.995万 -> 向上取整 2
 
 

@@ -210,6 +210,11 @@ class JsonMonthHistoryStore:
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise HistoryError("文件内容不是 JSON 对象")
+        snapshot = raw.get("snapshot") or {}
+        # Old stated income may mean either expected or actual. Preserve its
+        # amount, but require reconfirmation before treating it as actual.
+        if snapshot.get("schema_version", 1) < 2 and (snapshot.get("income") or {}).get("source", "stated") == "stated" and snapshot.get("income"):
+            snapshot["income"]["role"] = "unknown"
         record = MonthRecord.model_validate(raw)
         if not record.period:
             record.period = path.stem  # 兼容早期手工写的文件

@@ -71,10 +71,44 @@ def test_offline_never_generates_default_allocations():
     assert result.plan is None and result.degraded and not result.awaiting_confirmation
 
 
+def test_tool_loop_text_is_private_even_without_tool_calls():
+    from langchain_core.messages import AIMessage
+    from langchain_core.tools import tool
+    from moneyrouter_agent.api.service import plan_conversation
+
+    @tool
+    def read_facts():
+        """Read the facts used for planning."""
+        return "confirmed facts"
+
+    inspections = iter([
+        AIMessage(content="I'll start by reading the facts.", tool_calls=[
+            {"name": "read_facts", "args": {}, "id": "facts-1"}]),
+        AIMessage(content="Let me test a minimal plan within the cap."),
+    ])
+    agent = PlanAgent(inputs=inputs(), settings=Settings(api_key=None, key_file=None),
+        agent_runner=lambda messages: next(inspections), tools=[read_facts],
+        decide_runner=lambda messages: PlanTurnDecision(status="ask", reply="请核对本月可用收入。"),
+        checkpointer=InMemorySaver())
+    result = agent.plan("private", user_message="生成本月方案")
+    state = agent.graph.get_state(agent._config("private"))
+    assert result.reply == "请核对本月可用收入。"
+    assert result.clarification_target == "month"
+    assert plan_conversation(state.values["messages"]) == [
+        {"role": "user", "content": "生成本月方案"},
+        {"role": "assistant", "content": result.reply},
+    ]
+    assert any(isinstance(m, AIMessage) and "Let me" in m.content for m in state.values["messages"])
+    # An unmarked/internal AI message can never become the snapshot reply.
+    agent.graph.update_state(agent._config("private"), {"messages": [AIMessage(content="internal only")]})
+    assert agent.snapshot("private").reply == result.reply
+
+
 def test_summary_keeps_previous_month_and_wallet_execution_separate():
     facts = inputs()
+    facts.snapshot.coverage_complete = True
     facts.snapshot = recompute(facts.snapshot)
-    facts.snapshot.trailing = [MonthlyPoint(period="2026-06", income_cents=240000, spend_total_cents=60000, balance_cents=180000)]
+    facts.snapshot.trailing = [MonthlyPoint(period="2026-06", coverage_complete=True, income_cents=240000, spend_total_cents=60000, balance_cents=180000)]
     plan = compose_wallet_plan(proposal(), facts)
     result = build_diff(facts.snapshot, plan=plan)
     assert result.insights["previous_available"]

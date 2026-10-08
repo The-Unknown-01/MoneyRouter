@@ -16,10 +16,27 @@
 from __future__ import annotations
 
 import pytest
+from datetime import datetime, timezone
+from moneyrouter_agent import periods
 
 from moneyrouter_agent import history as history_mod
 from moneyrouter_agent import summary_store as summary_store_mod
 from moneyrouter_agent.tools import market_data as md
+
+
+@pytest.fixture(autouse=True)
+def business_clock(monkeypatch):
+    """Calendar-sensitive tests must not change behavior as wall time passes."""
+    current = ["2026-10-08"]
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = datetime.fromisoformat(current[0] + "T04:00:00+00:00")
+            return value.astimezone(tz) if tz else value.replace(tzinfo=None)
+    monkeypatch.setattr(periods, "datetime", Clock)
+    def advance(value):
+        current[0] = value
+    return advance
 
 
 @pytest.fixture(autouse=True)

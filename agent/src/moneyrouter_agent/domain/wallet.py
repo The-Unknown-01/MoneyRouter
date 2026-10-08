@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
+from ..periods import history_window, period_context, valid_period
 
 
 class InvestmentStep(BaseModel):
@@ -44,26 +45,38 @@ class WalletProposal(BaseModel):
 def planning_facts(inputs):
     """Current month facts, never historical averages or automatically spendable reserves."""
     snapshot = inputs.snapshot
+    window = history_window(inputs.period) if valid_period(inputs.period) and inputs.period > "0001-03" else []
     return {
         "period": inputs.period, "as_of": inputs.as_of,
+        "period_context": period_context(inputs.period, date.fromisoformat(inputs.as_of) if inputs.as_of else None) if valid_period(inputs.period) else {},
         "profile": inputs.profile.model_dump(mode="json") if inputs.profile else None,
         "month": snapshot.model_dump(mode="json") if snapshot else None,
-        "history": [s.model_dump(mode="json") for s in inputs.history[-3:]],
+        "history_window": window,
+        "history": [s.model_dump(mode="json") for s in inputs.history if s.period in window],
+        "missing_history_periods": [p for p in window if not any(s.period == p for s in inputs.history)],
         "experience": inputs.experience.model_dump(mode="json") if inputs.experience else None,
         "briefing": inputs.briefing.model_dump(mode="json") if inputs.briefing else None,
-        "notice": "历史开销不是预算。category amounts 是已花事实。obligations 是未支付义务。储备不自动计入可用资金。",
+        "notice": "period 是方案月份；as_of 是信息基准日。历史开销不是预算。income 是已到账实际；expected_income 是包含已到账的预计整月总收入，不能相加。categories 是已花事实，obligations 是未支付义务。未来月是预案，历史月只回看。储备不自动计入可用资金。",
     }
 
 
 def validate_wallets(proposal, inputs):
-    from .month import SPEND_CATEGORIES, category_map
+    from .month import SPEND_CATEGORIES, category_map, planning_income_cents, actual_income_cents
     errors = []
     snapshot = inputs.snapshot
-    income = snapshot.income.amount_cents if snapshot and snapshot.income else None
+    income = planning_income_cents(snapshot) if snapshot else None
+    if not valid_period(inputs.period):
+        errors.append("缺少有效的方案月份")
+    if inputs.as_of and inputs.period < inputs.as_of[:7]:
+        errors.append("历史月份仅供查看与复盘，请选择当前或未来月份生成方案")
+    if snapshot and inputs.as_of and inputs.period > inputs.as_of[:7] and (actual_income_cents(snapshot) is not None or snapshot.categories or snapshot.wallet_execution):
+        errors.append("未来月份不能有已到账收入、已花或已执行记录，请核对预计资料")
+    if snapshot and snapshot.expected_income and actual_income_cents(snapshot) is not None and income < actual_income_cents(snapshot):
+        errors.append("预计整月总收入不能低于已到账实际收入")
     if not snapshot or snapshot.period != inputs.period:
         errors.append("本月实况与方案期间不一致，请先核对正确月份")
     if income is None or income < 0:
-        errors.append("缺少有效的本月收入，请交由 MonthAgent 核对")
+        errors.append("缺少方案月份的有效收入，请核对实际收入或预计整月收入")
     if not snapshot or not snapshot.obligations_reviewed:
         errors.append("请先由 MonthAgent 核对尚未支付义务（包括明确没有）")
     spent = category_map(snapshot.categories) if snapshot else {}
@@ -123,7 +136,7 @@ def validate_wallets(proposal, inputs):
                     if step.date[:7] != inputs.period or (inputs.as_of and step.date < inputs.as_of):
                         raise ValueError()
                 except ValueError:
-                    errors.append(f"{w.name} 投入日期必须属于本月且不早于信息基准日")
+                    errors.append(f"{w.name} 投入日期必须属于方案月份 {inputs.period} 且不早于信息基准日")
             horizon = inputs.profile.horizon_months if inputs.profile else None
             if w.horizon_months and horizon and w.horizon_months > horizon:
                 errors.append(f"{w.name} 持有期限超过用户确认的资金使用期限")
@@ -198,4 +211,4 @@ def compose_wallet_plan(proposal, inputs):
             category=label, amount_cents=sum(w.amount_cents for w in proposal.wallets if w.kind == "investment" and w.asset_class == key),
             pct=round(sum(w.amount_cents for w in proposal.wallets if w.kind == "investment" and w.asset_class == key)/investment*100, 2) if investment else 0)
             for key, label in [("liquid", "保守储蓄"), ("steady", "稳健配置"), ("growth", "增长配置")]]),
-        narrative=f"本月可用资金 {report['funding_cents']/100:.2f} 元，消费安排 {(needs+debt+wants)/100:.2f} 元，储蓄与投资安排 {savings/100:.2f} 元。请展开各钱包查看安排与原因。")
+        narrative=f"{inputs.period} 规划资金 {report['funding_cents']/100:.2f} 元，消费安排 {(needs+debt+wants)/100:.2f} 元，储蓄与投资安排 {savings/100:.2f} 元。预计收入包含已到账部分，不能重复相加。请展开各钱包查看安排与原因。")

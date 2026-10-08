@@ -19,6 +19,7 @@ from langgraph.types import Command, interrupt
 
 from ..domain.experience import ExperiencePack, Lesson
 from ..domain.profile_delta import ProfileEvent, active_events
+from ..periods import business_today
 from ..domain.summary import (
     LessonDraft,
     MonthlySummary,
@@ -276,12 +277,17 @@ def make_compose(code: SummaryCodeLayer):
 
         pack = merge_pack(code.prior_pack, filled, period=code.period or diff.period)
         delta, warnings = code.build_delta(draft)
+        if diff.review_mode != "final":
+            from ..domain.profile_delta import ProfileDelta
+            pack = code.prior_pack or ExperiencePack()
+            delta = ProfileDelta(period=diff.period)
 
         sections = [text.strip() for text in draft.sections if text.strip()]
         summary = MonthlySummary(
             period=code.period or diff.period,
-            generated_at=date.today().isoformat(),
-            headline=(draft.headline or "").strip() or render_headline(diff),
+            review_mode=diff.review_mode,
+            generated_at=business_today().isoformat(),
+            headline=(draft.headline or "").strip() if diff.review_mode == "final" and draft.headline else render_headline(diff),
             sections=sections or render_sections(diff),
             diff=diff,
             insights=diff.insights,

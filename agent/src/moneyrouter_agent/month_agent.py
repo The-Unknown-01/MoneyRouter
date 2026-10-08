@@ -207,8 +207,6 @@ class MonthAgent:
         target = (period or "").strip()
         if not target:
             target = str((self.graph.get_state(config).values or {}).get("period") or "").strip()
-        if target == self._history_loaded_for:
-            return
         records = self.history_store.load_records(
             limit=self.history_limit,
             before=target or None,
@@ -340,6 +338,22 @@ class MonthAgent:
             if snapshot.income and snapshot.income.source == "file" and snapshot.income.amount_cents != amount:
                 raise ValueError("账单收入与手填冲突，请核对账单后更新")
             snapshot.income = IncomeFact(amount_cents=amount, evidence="用户在核对卡片明确填写", source="stated")
+        if values.get("expected_income_cents") is not None:
+            from .domain.month import IncomeFact
+            amount = values["expected_income_cents"]
+            if not isinstance(amount, int) or isinstance(amount, bool) or amount < 0:
+                raise ValueError("预计收入必须为非负整数分")
+            snapshot.expected_income = IncomeFact(amount_cents=amount, role="expected", source="stated", evidence="用户明确填写预计整月总收入，包含已到账部分")
+        if values.get("coverage_complete") is not None:
+            from .periods import business_today, period_bounds
+            if not isinstance(values["coverage_complete"], bool):
+                raise ValueError("整月资料核对状态无效")
+            if values["coverage_complete"] and snapshot.period >= business_today().strftime("%Y-%m"):
+                raise ValueError("进行中或未来月份不能确认整月已结账")
+            snapshot.coverage_complete = values["coverage_complete"]
+            if snapshot.coverage_complete:
+                start, end = period_bounds(snapshot.period)
+                snapshot.coverage_start, snapshot.coverage_end = start.isoformat(), end.isoformat()
         if values.get("obligations_reviewed") is not None:
             if not isinstance(values["obligations_reviewed"], bool):
                 raise ValueError("待支付核对状态无效")

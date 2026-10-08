@@ -35,7 +35,10 @@ func validCategory(v string) bool {
 func essentialCategory(c string) bool {
 	return c == "住房" || c == "餐饮" || c == "交通" || c == "医疗" || c == "教育"
 }
-func validMonth(v string) bool { _, err := time.Parse("2006-01", v); return err == nil && len(v) == 7 }
+func validMonth(v string) bool {
+	_, err := time.Parse("2006-01", v)
+	return err == nil && len(v) == 7 && !strings.HasPrefix(v, "0000-")
+}
 func validDate(v string) bool {
 	_, err := time.Parse("2006-01-02", v)
 	return err == nil && len(v) == 10

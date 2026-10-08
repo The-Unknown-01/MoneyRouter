@@ -159,7 +159,7 @@ class PlanAgent:
 
         reply = ""
         for message in reversed(values.get("messages") or []):
-            if isinstance(message, AIMessage):
+            if isinstance(message, AIMessage) and message.additional_kwargs.get("public_reply") is True:
                 content = message.content
                 reply = content if isinstance(content, str) else str(content)
                 break

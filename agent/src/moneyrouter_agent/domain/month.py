@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from ..periods import business_today, valid_period, shift_period, history_window, period_bounds
 
 # --------------------------------------------------------------------------- #
 # 分类体系：固定枚举保证可比可复算；原始类目→枚举用关键词映射表（改数据即可扩展）
@@ -154,7 +155,8 @@ class IncomeFact(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    amount_cents: int = Field(description="本月收入，单位「分」。")
+    amount_cents: int = Field(ge=0, strict=True, description="指定月份的收入，整数分；实际与预计由所在字段及 role 区分。")
+    role: Literal["actual", "expected", "unknown"] = Field(default="actual", description="actual 已发生、expected 预计整月、unknown 旧数据口径待核对")
     basis: str = Field(default="", description="口径，如「税后月薪」「每月生活费」「接单收入」。")
     source: Source = Field(default="stated", description="文件（file）还是口述（stated）。")
     evidence: str = Field(default="", description="出处说明。")
@@ -181,6 +183,7 @@ class Baseline(BaseModel):
     )
     category: str = Field(default="", description="分类名；空串表示总体（不分品类）。")
     amount_cents: int = Field(description="基线值，单位「分」。")
+    periods: list[str] = Field(default_factory=list, description="实际参与基线的日历月份")
     delta_cents: int = Field(default=0, description="本月 − 基线，正数表示超出基线。")
     delta_pct: float | None = Field(default=None, description="偏差百分比；基线为 0 时留空。")
 
@@ -191,6 +194,7 @@ class MonthlyPoint(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(description="统计期间 YYYY-MM。")
+    coverage_complete: bool | None = None
     income_cents: int | None = Field(default=None, description="当月收入（分）。")
     spend_total_cents: int | None = Field(default=None, description="当月支出合计（分）。")
     balance_cents: int | None = Field(default=None, description="当月结余（分）。")
@@ -336,6 +340,9 @@ class MonthSnapshot(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     period: str = Field(default="", description="统计期间 YYYY-MM。")
+    schema_version: int = 2
+    as_of: str = Field(default="", description="事实截止日期 YYYY-MM-DD，不能把未来流水当作已发生事实")
+    expected_income: IncomeFact | None = Field(default=None, description="预计整月总收入，包含已到账部分，不与实际收入重复相加；只用于规划")
     additional_funds_cents: int | None = Field(default=None, ge=0, strict=True, description="用户明确允许本月动用的收入外余额，未知不计入；不是全部储备")
     additional_funds_evidence: str = Field(default="", description="用户明确授权动用该余额的事实依据")
     wallet_execution: list[WalletExecution] = Field(default_factory=list, description="已执行储蓄或投资，关联既有钱包 id")
@@ -348,7 +355,7 @@ class MonthSnapshot(BaseModel):
     coverage_end: str = ""
     review_required_count: int = 0
     accounting_basis: str = "platform"
-    income: IncomeFact | None = Field(default=None, description="本月收入；未了解到就留空。")
+    income: IncomeFact | None = Field(default=None, description="指定月截至截止日已发生的实际收入；预计整月收入放 expected_income，未知留空。")
     categories: list[CategorySpend] = Field(
         default_factory=list, description="各分类支出；没报到的分类不要编。"
     )
@@ -498,17 +505,46 @@ def merge_allocation(base: FundAllocation, incoming: FundAllocation) -> FundAllo
     return merged
 
 
+def actual_income_cents(snapshot: MonthSnapshot) -> int | None:
+    return snapshot.income.amount_cents if snapshot.income and snapshot.income.role == "actual" else None
+
+
+def planning_income_cents(snapshot: MonthSnapshot) -> int | None:
+    if snapshot.expected_income and snapshot.expected_income.role == "expected":
+        return snapshot.expected_income.amount_cents
+    return actual_income_cents(snapshot)
+
+
+def complete_month(snapshot: MonthSnapshot) -> bool:
+    if not valid_period(snapshot.period) or snapshot.period >= business_today().strftime("%Y-%m"):
+        return False
+    if snapshot.coverage_complete is not True or snapshot.review_required_count:
+        return False
+    start, end = period_bounds(snapshot.period)
+    if snapshot.coverage_start and snapshot.coverage_start != start.isoformat():
+        return False
+    if snapshot.coverage_end and snapshot.coverage_end != end.isoformat():
+        return False
+    return True
+
+
+def review_mode(snapshot: MonthSnapshot) -> str:
+    if valid_period(snapshot.period) and snapshot.period > business_today().strftime("%Y-%m"):
+        return "forecast"
+    return "final" if complete_month(snapshot) and actual_income_cents(snapshot) is not None else "stage"
+
+
 def past_snapshots(history: list[MonthSnapshot] | None, period: str) -> list[MonthSnapshot]:
     """只留下**严格早于本期**的历史，供基线/趋势使用。
 
     历史现在可以从留档里自动载入，所以必须有这道闸：否则同一个月会被拿来跟自己比
     （上月 = 本月、近三月均值含本月），基线全成了 0 偏差，反而看不出异动。
-    期间为空的快照（外部手工注入、没标月份）保留——它们本来就是按位置表达"之前的月份"。
+    未标月份、完整性未知、未结束或待确认的资料不能进入正式月度基线。
     """
-    items = [s for s in (history or []) if s.coverage_complete is not False]
-    if not period:
-        return items
-    return [snap for snap in items if not snap.period or snap.period < period]
+    if not valid_period(period):
+        return []
+    return sorted({s.period: s for s in (history or [])
+                   if valid_period(s.period) and s.period < period and complete_month(s)}.values(), key=lambda s: s.period)
 
 
 def build_baselines(
@@ -516,6 +552,7 @@ def build_baselines(
     *,
     budget: dict[str, int] | None = None,
     history: list[MonthSnapshot] | None = None,
+    period: str = "",
 ) -> list[Baseline]:
     """按注入的预算与历史，算出各分类/总体的偏差基线。
 
@@ -530,7 +567,7 @@ def build_baselines(
     def _pct(delta: int, base: int) -> float | None:
         return round(delta / base * 100.0, 2) if base else None
 
-    def _add(metric: str, base_map: dict[str, int]) -> None:
+    def _add(metric: str, base_map: dict[str, int], periods: list[str] | None = None) -> None:
         for category, base_value in base_map.items():
             cur = current.get(category, 0)
             out.append(
@@ -538,6 +575,7 @@ def build_baselines(
                     metric=metric,  # type: ignore[arg-type]
                     category=category,
                     amount_cents=int(base_value),
+                    periods=periods or [],
                     delta_cents=cur - int(base_value),
                     delta_pct=_pct(cur - int(base_value), int(base_value)),
                 )
@@ -546,19 +584,17 @@ def build_baselines(
     if budget:
         _add("budget", {k: v for k, v in budget.items() if v is not None})
 
-    hist = list(history or [])
-    if hist:
-        _add("last_month", category_map(hist[-1].categories))
-    if hist:
-        window = hist[-3:]
-        totals: dict[str, int] = {}
-        counts: dict[str, int] = {}
-        for snap in window:
-            for category, amount in category_map(snap.categories).items():
-                totals[category] = totals.get(category, 0) + amount
-                counts[category] = counts.get(category, 0) + 1
-        avg = {category: round(totals[category] / counts[category]) for category in totals}
-        _add("trailing_3m_avg", avg)
+    hist = {s.period: s for s in past_snapshots(history, period)}
+    if valid_period(period) and period != "0001-01":
+        previous = shift_period(period, -1)
+        if previous in hist:
+            names = set(current) | set(category_map(hist[previous].categories))
+            _add("last_month", {c: category_map(hist[previous].categories).get(c, 0) for c in names}, [previous])
+        periods = history_window(period) if period > "0001-03" else []
+        if periods and all(p in hist for p in periods):
+            maps = [category_map(hist[p].categories) for p in periods]
+            names = set(current).union(*(set(m) for m in maps))
+            _add("trailing_3m_avg", {c: round(sum(m.get(c, 0) for m in maps) / 3) for c in names}, periods)
 
     out.sort(key=lambda b: (b.metric, category_rank(b.category)))
     return out
@@ -571,7 +607,8 @@ def build_trailing(history: list[MonthSnapshot] | None, current: MonthSnapshot) 
         points.append(
             MonthlyPoint(
                 period=snap.period,
-                income_cents=(snap.income.amount_cents if snap.income else None),
+                coverage_complete=snap.coverage_complete,
+                income_cents=actual_income_cents(snap),
                 spend_total_cents=snap.spend_total_cents,
                 balance_cents=snap.balance_cents,
                 investment_return_cents=snap.investments.month_return_cents,
@@ -580,7 +617,8 @@ def build_trailing(history: list[MonthSnapshot] | None, current: MonthSnapshot) 
     points.append(
         MonthlyPoint(
             period=current.period,
-            income_cents=(current.income.amount_cents if current.income else None),
+            coverage_complete=current.coverage_complete,
+            income_cents=actual_income_cents(current),
             spend_total_cents=current.spend_total_cents,
             balance_cents=current.balance_cents,
             investment_return_cents=current.investments.month_return_cents,
@@ -726,7 +764,8 @@ def recompute(
     """
     categories = sorted(snapshot.categories, key=lambda c: category_rank(c.category))
     spend_total = sum(int(c.amount_cents) for c in categories)
-    balance = (snapshot.income.amount_cents - spend_total) if snapshot.income else None
+    income = actual_income_cents(snapshot)
+    balance = income - spend_total if income is not None else None
 
     refreshed = snapshot.model_copy(
         update={"categories": categories, "spend_total_cents": spend_total, "balance_cents": balance}
@@ -734,7 +773,7 @@ def recompute(
     refreshed.allocation = compute_allocation(balance, refreshed.allocation)
     refreshed.investments = compute_investments(refreshed.investments)
     past = past_snapshots(history, refreshed.period)
-    refreshed.baselines = build_baselines(categories, budget=budget, history=past)
+    refreshed.baselines = build_baselines(categories, budget=budget, history=past if complete_month(refreshed) else [], period=refreshed.period)
     refreshed.trailing = build_trailing(past, refreshed)
 
     effective_goal = goal or refreshed.goal_alignment
@@ -744,6 +783,8 @@ def recompute(
         goal=effective_goal,
         saved_to_date_cents=explicit_saved if explicit_saved is not None else saved_to_date_cents,
     )
+    if review_mode(refreshed) != "final":
+        refreshed.goal_alignment.on_track = None
     refreshed.net_worth_change_cents = (
         balance + refreshed.investments.month_return_cents
         if (balance is not None and refreshed.investments.month_return_cents is not None)

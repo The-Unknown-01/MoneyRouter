@@ -107,14 +107,26 @@ def _overlay_code_layer(model_snapshot: MonthSnapshot, base: MonthSnapshot) -> M
     - 期间缺失时沿用代码层。
     派生字段（合计/结余/基线/趋势/目标/收益合计）在 :func:`_recompute` 里重算。
     """
+    if base.as_of and base.period > base.as_of[:7] and (
+        (model_snapshot.income and model_snapshot.income.role == "actual") or model_snapshot.categories or model_snapshot.wallet_execution
+    ):
+        raise ValueError("未来月份只能核对预计收入和待支付费用，不能填写已发生事实")
     merged_categories = merge_categories(base.categories, model_snapshot.categories)
-    income = model_snapshot.income if model_snapshot.income is not None else base.income
+    income = model_snapshot.income if model_snapshot.income is not None and model_snapshot.income.role == "actual" else base.income
+    expected_income = model_snapshot.expected_income or base.expected_income
+    if model_snapshot.income and model_snapshot.income.role == "expected":
+        expected_income = model_snapshot.income
+    if expected_income:
+        expected_income = expected_income.model_copy(update={"role": "expected"})
     if base.income is not None and base.income.source == SOURCE_FILE:
         income = base.income
     one_offs = _merge_one_offs(base.one_offs, model_snapshot.one_offs)
     allocation = merge_allocation(base.allocation, model_snapshot.allocation)
     investments = merge_investments(base.investments, model_snapshot.investments)
     update: dict[str, Any] = {
+        "period": base.period or model_snapshot.period,
+        "as_of": base.as_of,
+        "schema_version": 2,
         "coverage_complete": base.coverage_complete,
         "coverage_start": base.coverage_start, "coverage_end": base.coverage_end,
         "review_required_count": base.review_required_count, "accounting_basis": base.accounting_basis,
@@ -127,6 +139,7 @@ def _overlay_code_layer(model_snapshot: MonthSnapshot, base: MonthSnapshot) -> M
         "spending_estimated": base.spending_estimated or model_snapshot.spending_estimated,
         "categories": merged_categories,
         "income": income,
+        "expected_income": expected_income,
         "one_offs": one_offs,
         "allocation": allocation,
         "investments": investments,
@@ -220,6 +233,7 @@ def make_ingest(*, one_off_min_cents: int, parser: Any | None = None):
         base: MonthSnapshot = state.get("snapshot") or MonthSnapshot(period=period)
         merged_categories = merge_categories([c for c in base.categories if c.source != SOURCE_FILE], parsed.categories)
         snapshot = base.model_copy(update={"categories": merged_categories,
+            "as_of": parsed.as_of or base.as_of,
             "coverage_complete": parsed.coverage_complete,
             "coverage_start": parsed.coverage_start, "coverage_end": parsed.coverage_end,
             "review_required_count": parsed.review_required_count, "accounting_basis": parsed.accounting_basis,

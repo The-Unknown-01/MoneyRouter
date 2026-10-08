@@ -11,6 +11,40 @@ import (
 	"testing"
 )
 
+func TestPlanClarificationPollStaysOnPlanPage(t *testing.T) {
+	a := testApp(t)
+	cookie, _, id := registerTestUser(t, a, "plan_clarification")
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"succeeded","result":{"clarification_target":"month","reply":"请核对本月收入"}}`))
+	}))
+	defer fake.Close()
+	a.bridge = &agentBridge{fake.URL, "test", fake.Client()}
+	if _, err := a.db.Exec("INSERT INTO bridge_jobs(id,user_id,kind,period,created_at) VALUES(?,?,?,?,?)", "clarify-job", id, "plan", "2026-10", utcNow()); err != nil {
+		t.Fatal(err)
+	}
+	for _, htmx := range []bool{false, true} {
+		req := httptest.NewRequest("GET", "/jobs/clarify-job", nil)
+		req.AddCookie(cookie)
+		if htmx {
+			req.Header.Set("HX-Request", "true")
+		}
+		w := httptest.NewRecorder()
+		a.routes().ServeHTTP(w, req)
+		destination := w.Header().Get("Location")
+		if htmx {
+			var navigation map[string]string
+			if err := json.Unmarshal([]byte(w.Header().Get("HX-Location")), &navigation); err != nil {
+				t.Fatal(err)
+			}
+			destination = navigation["path"]
+		}
+		if destination != "/plan?period=2026-10" {
+			t.Fatalf("unexpected navigation: %s", destination)
+		}
+	}
+}
+
 func TestIntegratedFragmentAndPythonContract(t *testing.T) {
 	a := testApp(t)
 	cookie, csrf, id := registerTestUser(t, a, "integrated_owner")
@@ -117,7 +151,7 @@ func TestWalletPlanRendersAmountsReasonsAndSchedule(t *testing.T) {
 	w := httptest.NewRecorder()
 	a.routes().ServeHTTP(w, req)
 	html := w.Body.String()
-	for _, expected := range []string{"本月钱包计划", "wallet-row", "data-chart=\"wallets\"", "¥900.00", "¥400.00", "覆盖已花", "2026-07-15", "确认这份方案"} {
+	for _, expected := range []string{"2026-07 钱包计划", "wallet-row", "data-chart=\"wallets\"", "¥900.00", "¥400.00", "覆盖已花", "2026-07-15", "历史月份仅供回看方案与复盘"} {
 		if w.Code != 200 || !strings.Contains(html, expected) {
 			t.Fatalf("wallet page missing %q: %d %s", expected, w.Code, html)
 		}

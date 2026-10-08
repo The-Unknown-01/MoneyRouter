@@ -46,6 +46,7 @@ def _record(period: str = PERIOD, *, note: str = "朋友结婚随了礼") -> Mon
     snapshot = recompute(
         MonthSnapshot(
             period=period,
+            coverage_complete=True,
             income=IncomeFact(amount_cents=1_000_000),
             categories=[
                 CategorySpend(category="餐饮", amount_cents=300_000),
@@ -393,8 +394,9 @@ def test_missing_record_is_reported_not_faked():
     assert result.pack.lessons == []
 
 
-def test_close_event_is_appended_for_a_settled_matter():
+def test_close_event_is_appended_for_a_settled_matter(business_clock):
     """本月结束的事：追加一条关闭事件，原条目不动。"""
+    business_clock("2026-11-01")
     from moneyrouter_agent.domain.profile_delta import (
         CLOSE_EVENT_TYPE,
         ProfileEvent,

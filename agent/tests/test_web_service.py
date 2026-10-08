@@ -8,7 +8,8 @@ from moneyrouter_agent.api.service import Service, Command, public
 from moneyrouter_agent.config import Settings
 
 @pytest.fixture
-def service(tmp_path, monkeypatch):
+def service(tmp_path, monkeypatch, business_clock):
+ business_clock("2026-09-10")
  monkeypatch.setattr(Settings,'from_env',classmethod(lambda cls,*a,**k:Settings(api_key=None,key_file=None)))
  from moneyrouter_agent.plan_agent import PlanAgent
  from moneyrouter_agent.domain.plan_turn import PlanTurnDecision
@@ -44,6 +45,24 @@ def test_profile_null_and_zero(service):
  assert r['final_profile']['max_loss_pct']==0
  assert service.state('u2','2026-09')['profile'] is None
 
+
+def test_legacy_plan_conversation_does_not_expose_tool_loop(service):
+ service.put('u1', 'plan_result', {'reply': '请核对收入。', 'messages': [
+  {'role': 'user', 'content': '生成方案'},
+  {'role': 'assistant', 'content': "I'll start by reading facts."},
+  {'role': 'assistant', 'content': 'Let me test the stress scenario.'},
+  {'role': 'assistant', 'content': '请核对收入。'}]}, '2026-09')
+ result = service.state('u1', '2026-09')['plan_result']
+ assert result['messages'] == [{'role': 'user', 'content': '生成方案'}, {'role': 'assistant', 'content': '请核对收入。'}]
+
+
+def test_plan_service_only_persists_public_replies(service):
+ seed(service)
+ result = service.execute(command('plan'))
+ assert result['conversation_version'] == 1
+ assert result['messages'][-1]['content'] == result['reply']
+ assert service.state('u1', '2026-09')['plan_result']['messages'] == result['messages']
+
 def test_manual_rejects_invalid_values(service):
  with pytest.raises(ValueError):service.execute(command('manual',action='confirm',payload={'horizon_months':601}))
 
@@ -71,7 +90,7 @@ def test_confirmation_is_explicit(service):
  with pytest.raises(ValueError):service.execute(command('plan'))
  assert not service.get('u1','plan_result','2026-09')['confirmed']
 
-def test_full_loop_and_stale(service):
+def test_full_loop_and_stale(service, business_clock):
  seed(service)
  state=service.state('u1','2026-09')
  assert state['month_current']
@@ -79,6 +98,11 @@ def test_full_loop_and_stale(service):
  service.execute(command('plan'))
  service.execute(command('plan',action='confirm'))
  assert not service.state('u1','2026-09')['stale']
+ business_clock("2026-10-08")
+ history=service.stores('u1')[0]
+ record=history.load('2026-09')
+ record.snapshot.coverage_complete=True
+ history.save(record)
  r=service.execute(command('summary'))
  assert r['awaiting_confirmation']
  service.execute(command('summary',action='confirm'))

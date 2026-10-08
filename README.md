@@ -4,7 +4,7 @@
 
 正式运行链路已整合为：浏览器 → Go（登录、账本、HTML 片段）→ 内部 HTTP/JSON → Python（五类 Agent、账单清洗、答疑与持久化）。前端采用 Go 模板、HTMX、daisyUI、ECharts，手机优先；不需要原生壳或前端 Node 服务。
 
-**当前运行与部署以 [双服务操作说明](docs/WEB_OPERATIONS.md) 为准。** Windows 双击根目录 `start.cmd`，或执行 `./start.cmd`，即可同时启动 Python Agent 和 Go 网页服务，默认调用真实模型。请先停止此前单独启动的 Go 服务，启动后访问 http://127.0.0.1:8080。窗口需保持打开，按 Ctrl+C 停止；启动失败会保留错误信息。首次使用需安装依赖并配置密钥（见操作说明）；离线测试执行 `./start.cmd -Offline`，自定义地址执行 `./start.cmd -Listen 127.0.0.1:8081`。数据使用新的 `data-web/go` 和 `data-web/agent`，旧数据目录保留。方案与复盘的算法、模型和数据结构以 Python 为准，旧 Go Agent 不再参与正式路由。
+**当前运行与部署以 [双服务操作说明](docs/WEB_OPERATIONS.md) 为准。** Windows 双击根目录 `start.cmd`，或执行 `./start.cmd`，即可同时启动 Python Agent 和 Go 网页服务，默认调用真实模型。请先停止此前单独启动的 Go 服务，启动后访问 http://127.0.0.1:8080。窗口需保持打开，按 Q / Esc / Ctrl+C 停止，直接关闭窗口也会一并停止两个服务；若仍有残留，双击根目录 `stop.cmd`（或执行 `./stop.cmd`）即可停止 Python 与 Go 并释放端口。启动失败会保留错误信息。首次使用需安装依赖并配置密钥（见操作说明）；离线测试执行 `./start.cmd -Offline`，自定义地址执行 `./start.cmd -Listen 127.0.0.1:8081`。数据使用新的 `data-web/go` 和 `data-web/agent`，旧数据目录保留。方案与复盘的算法、模型和数据结构以 Python 为准，旧 Go Agent 不再参与正式路由。
 
 验收结果见 [Web 整合验收记录](docs/WEB_ACCEPTANCE_2026-10-08.md)。下文为原 Go MVP 的历史说明，单独运行 Go 不能替代 Python 服务，旧算法与旧单库备份方式不适用于完整应用。
 

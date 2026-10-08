@@ -224,6 +224,12 @@ class SummaryAgent:
             else:
                 if record is None and target and self.history_store is not None:
                     record = self.history_store.load(target)
+                if record is not None and self.history_store is not None:
+                    from .domain.month import recompute
+                    history = self.history_store.load_records(before=target)
+                    budget = {b.category: b.amount_cents for b in record.snapshot.baselines if b.metric == "budget"}
+                    record = record.model_copy(update={"snapshot": recompute(record.snapshot,
+                        history=[r.snapshot for r in history], budget=budget)})
                 # 每期开跑前把"这一期的事实"装进代码层（不进图状态）
                 self.code.set_inputs(
                     record=record,
@@ -264,10 +270,10 @@ class SummaryAgent:
 
         locations: list[str] = []
         try:
-            if self.event_store is not None and result.profile_delta.events:
+            if result.summary.review_mode == "final" and self.event_store is not None and result.profile_delta.events:
                 self.event_store.append(result.profile_delta.events)
                 locations.append("画像事件")
-            if self.experience_store is not None:
+            if result.summary.review_mode == "final" and self.experience_store is not None:
                 self.experience_store.save(result.pack)
                 locations.append("经验包")
             if self.summary_store is not None and result.summary.period:

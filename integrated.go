@@ -85,7 +85,7 @@ func num(v any) int64 { n, _ := strconv.ParseInt(str(v), 10, 64); return n }
 func yes(v any) bool  { b, _ := v.(bool); return b }
 func periodOf(r *http.Request) string {
 	p := r.FormValue("period")
-	if !validMonth(p) {
+	if p == "" {
 		p = businessNow().Format("2006-01")
 	}
 	return p
@@ -140,6 +140,10 @@ type uiField struct{ Key, Label, Value, Type string }
 type uiStat struct{ Label, Value string }
 type uiLine struct{ Label, Value string }
 type webData struct {
+	ReviewPlanVersion                                                                                                       string
+	PeriodLabel, PeriodStatus, NextPeriod, ReviewMode                                                                       string
+	PastPeriod, FuturePeriod, PlanReadOnly                                                                                  bool
+	FinanceBriefing                                                                                                         map[string]any
 	Title, Kind, Period, CSRF, RequestID, Error, Reply, JobID, JobKind, JobError, JobStatus, ChartJSON, Headline, Narrative string
 	User                                                                                                                    *user
 	State, Result                                                                                                           map[string]any
@@ -164,9 +168,44 @@ func (a *app) integratedPage(w http.ResponseWriter, r *http.Request) {
 }
 func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string) {
 	period := periodOf(r)
+	if !validMonth(period) {
+		http.Error(w, "月份无效，请使用 YYYY-MM", http.StatusBadRequest)
+		return
+	}
 	u := currentUser(r)
 	s, err := a.agentState(r.Context(), u.ID, period)
 	d := webData{Title: webTitles[kind], Kind: kind, Period: period, User: u, CSRF: u.CSRF, State: s, JobID: jobID}
+	currentPeriod := businessNow().Format("2006-01")
+	d.PastPeriod, d.FuturePeriod = period < currentPeriod, period > currentPeriod
+	d.PlanReadOnly = kind == "plan" && d.PastPeriod
+	d.NextPeriod = nextPeriod(period)
+	d.PeriodLabel = map[string]string{"ledger": "账本月份", "month": "核对月份", "plan": "方案月份", "review": "复盘月份", "chat": "方案月份"}[kind]
+	d.PeriodStatus = "进行中 · 实际数据截至资料截止日"
+	if d.PastPeriod {
+		d.PeriodStatus = "历史月份 · 整月资料仍需核对完整"
+	}
+	if d.FuturePeriod {
+		d.PeriodStatus = "未来月份 · 预计资料与预案"
+	}
+	d.ReviewMode = str(s["review_mode"])
+	if kind == "month" {
+		d.Title = period + " 月度核对"
+	}
+	if kind == "plan" {
+		d.Title = period + " 资金方案"
+		if d.FuturePeriod {
+			d.Title += " · 预案"
+		}
+		if d.PastPeriod {
+			d.Title += " · 历史回看"
+		}
+	}
+	if kind == "review" {
+		d.Title = period + " 阶段回顾"
+		if d.ReviewMode == "final" {
+			d.Title = period + " 整月复盘"
+		}
+	}
 	d.RequestID, _ = randomHex(16)
 	if err != nil {
 		log.Printf("agent state: %v", err)
@@ -196,6 +235,10 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 	if kind == "month" && yes(s["month_draft_stale"]) {
 		d.Awaiting, d.Confirmed = false, false
 		d.Warnings = append(d.Warnings, "账本或画像已更新，请重新读取账本并核对。")
+	}
+	if kind == "month" && d.Confirmed && !d.MonthCurrent {
+		d.Awaiting, d.Confirmed = false, false
+		d.Warnings = append(d.Warnings, "该月资料需要按最新口径重新核对：实际已到账收入与预计整月收入分别填写，确认后再进入方案。")
 	}
 	if kind != "chat" {
 		for _, v := range arr(d.Result["messages"]) {
@@ -260,7 +303,7 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 				groups[t.Category] += t.AmountCents
 			}
 		}
-		d.Stats = []uiStat{{"本月收入", formatMoney(income)}, {"本月支出", formatMoney(expense)}, {"净结余", formatMoney(income - expense)}}
+		d.Stats = []uiStat{{period + " 已记录收入", formatMoney(income)}, {period + " 已记录支出", formatMoney(expense)}, {"已记录净结余", formatMoney(income - expense)}}
 		values := []any{}
 		chartCategories := make([]string, 0, len(groups))
 		for cat := range groups {
@@ -279,7 +322,13 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 			d.Warnings = append(d.Warnings, "方案需要补充核对："+question)
 		}
 		snapshot := obj(d.Result["snapshot"])
-		d.Stats = []uiStat{{"收入", displayCents(obj(snapshot["income"])["amount_cents"])}, {"支出", displayCents(snapshot["spend_total_cents"])}, {"结余", displayCents(snapshot["balance_cents"])}}
+		actualIncome := obj(snapshot["income"])["amount_cents"]
+		if str(obj(snapshot["income"])["role"]) == "unknown" || (num(snapshot["schema_version"]) < 2 && str(obj(snapshot["income"])["source"]) == "stated") {
+			actualIncome = nil
+			snapshot["balance_cents"] = nil
+			d.Warnings = append(d.Warnings, "旧记录的收入口径待核对，请分别确认已到账实际和预计整月总收入。")
+		}
+		d.Stats = []uiStat{{"已到账实际收入", displayCents(actualIncome)}, {"预计整月总收入", displayCents(obj(snapshot["expected_income"])["amount_cents"])}, {"截至资料截止日已花", displayCents(snapshot["spend_total_cents"])}, {"实际结余", displayCents(snapshot["balance_cents"])}}
 		d.Narrative = str(d.Result["articulation"])
 		for _, x := range arr(d.Result["parse_warnings"]) {
 			d.Warnings = append(d.Warnings, str(x))
@@ -310,6 +359,10 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 		}
 		d.HasPlan = len(p) > 0
 		budget := obj(p["budget"])
+		d.FinanceBriefing = obj(obj(p["input_facts"])["briefing"])
+		if len(d.FinanceBriefing) == 0 {
+			d.FinanceBriefing = obj(obj(s["finance_result"])["briefing"])
+		}
 		reserve := obj(p["reserve"])
 		d.Headline = str(p["headline"])
 		d.Narrative = str(p["narrative"])
@@ -350,7 +403,7 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 		}
 
 		if num(p["schema_version"]) == 2 {
-			d.Stats = []uiStat{{"本月可用资金", displayCents(obj(p["funding"])["total_cents"])}, {"消费预算", formatMoney(num(budget["necessary_cents"]) + num(budget["wants_cents"]) + num(budget["debt_cents"]))}, {"储蓄与投资", displayCents(budget["savings_cents"])}}
+			d.Stats = []uiStat{{period + " 规划资金（含预计）", displayCents(obj(p["funding"])["total_cents"])}, {"消费预算", formatMoney(num(budget["necessary_cents"]) + num(budget["wants_cents"]) + num(budget["debt_cents"]))}, {"储蓄与投资", displayCents(budget["savings_cents"])}}
 			d.Lines = nil
 		}
 		if str(d.Result["clarification_target"]) == "month" {
@@ -365,6 +418,13 @@ func (a *app) webPage(w http.ResponseWriter, r *http.Request, kind, jobID string
 	}
 	if kind == "review" {
 		summary := obj(d.Result["summary"])
+		d.ReviewPlanVersion = str(obj(summary["diff"])["plan_version"])
+		if d.ReviewPlanVersion == "" {
+			d.ReviewPlanVersion = r.URL.Query().Get("plan_version")
+		}
+		if d.ReviewPlanVersion == "" && len(arr(s["versions"])) > 0 {
+			d.ReviewPlanVersion = str(obj(arr(s["versions"])[0])["version"])
+		}
 		d.HasSummary = len(summary) > 0
 		d.Headline = str(summary["headline"])
 		d.Narrative = str(summary["narrative"])
@@ -443,6 +503,10 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	u := currentUser(r)
 	period := periodOf(r)
+	if !validMonth(period) {
+		a.webError(w, r, "月份无效，请明确选择 YYYY-MM。")
+		return
+	}
 	action := r.FormValue("action")
 	payload := map[string]any{}
 	if !strings.Contains("|profile|manual|month|finance|plan|summary|chat|clean|", "|"+kind+"|") {
@@ -507,6 +571,10 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 		payload["bill"] = string(raw)
 	}
 	if kind == "plan" {
+		if period < businessNow().Format("2006-01") {
+			a.webError(w, r, "历史月份仅供查看与复盘，请选择当前或未来月份生成方案。")
+			return
+		}
 		payload["revision"] = s["revision"]
 		if !yes(s["month_current"]) {
 			a.webError(w, r, "请先核对并确认最新的月度实况。")
@@ -514,10 +582,13 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if kind == "month" && action == "finish" {
+		if r.FormValue("coverage_complete") == "true" {
+			payload["coverage_complete"] = true
+		}
 		if r.FormValue("obligations_reviewed") == "true" {
 			payload["obligations_reviewed"] = true
 		}
-		for _, key := range []string{"income_cents", "non_invested_cents", "invested_cents"} {
+		for _, key := range []string{"income_cents", "expected_income_cents", "non_invested_cents", "invested_cents"} {
 			if value := r.FormValue(key); value != "" {
 				n, err := parseMoney(value)
 				if err != nil {
@@ -530,6 +601,9 @@ func (a *app) agentSubmit(w http.ResponseWriter, r *http.Request) {
 		if value := r.FormValue("has_investments"); value != "" {
 			payload["has_investments"] = value == "true"
 		}
+	}
+	if kind == "summary" && r.FormValue("plan_version") != "" {
+		payload["plan_version"] = r.FormValue("plan_version")
 	}
 	if kind == "clean" {
 		f, h, e := r.FormFile("file")
@@ -601,9 +675,6 @@ func (a *app) agentPoll(w http.ResponseWriter, r *http.Request) {
 		a.webError(w, r, str(j["error"]))
 	default:
 		path := "/" + kindPage(kind) + "?period=" + period
-		if kind == "plan" && str(obj(j["result"])["clarification_target"]) == "month" {
-			path = "/month?period=" + period
-		}
 		if kind == "clean" {
 			path += "&preview=" + id
 		}
@@ -633,6 +704,14 @@ func (a *app) integratedSave(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	date, direction, category := r.FormValue("date"), r.FormValue("direction"), r.FormValue("category")
 	amount, err := parseMoney(r.FormValue("amount"))
+	if !validMonth(periodOf(r)) {
+		a.webError(w, r, "月份无效。")
+		return
+	}
+	if validDate(date) && date > businessNow().Format("2006-01-02") {
+		a.webError(w, r, "未来费用请在月度核对中填写为待支付义务，不能记录为已发生流水。")
+		return
+	}
 	s, e := a.agentState(r.Context(), u.ID, periodOf(r))
 	valid := false
 	for _, v := range arr(s["categories"]) {
@@ -735,6 +814,10 @@ func (a *app) integratedImport(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, v := range arr(result["rows"]) {
 		t := obj(v)
+		if !validDate(str(t["date"])) || str(t["date"]) > businessNow().Format("2006-01-02") {
+			a.webError(w, r, "导入含无效或未来日期，请核对后重试；未来费用应作为待支付义务。")
+			return
+		}
 		_, e = tx.Exec("INSERT OR IGNORE INTO transactions(user_id,date,direction,amount_cents,category,note,source,fingerprint,created_at) VALUES(?,?,?,?,?,?,?,?,?)", u.ID, str(t["date"]), str(t["direction"]), num(t["amount_cents"]), str(t["category"]), str(t["note"]), str(t["source"]), str(t["fingerprint"]), utcNow())
 		if e != nil {
 			a.webError(w, r, "导入失败，请检查文件。")

@@ -15,6 +15,11 @@ from ..model.deepseek import StructuredCall
 from ..prompts.wallet import INSTRUCTION
 
 
+def public_reply(content):
+    """Only these messages may cross the planning conversation API boundary."""
+    return AIMessage(content=content, additional_kwargs={"public_reply": True})
+
+
 def build_wallet_graph(*, context, decide_runner, agent_runner=None, tools=None, max_tool_rounds=4, **_):
     graph = StateGraph(PlanState)
 
@@ -56,9 +61,9 @@ def build_wallet_graph(*, context, decide_runner, agent_runner=None, tools=None,
         except Exception:
             return {"degraded": True, "error": "方案模型暂不可用，请稍后重试；未生成默认分配。",
                     "ready_to_finalize": False, "awaiting_confirmation": False,
-                    "messages": [AIMessage(content="本次方案未生成，已有正式计划保持可查看，请稍后重试。")],
+                    "messages": [public_reply("本次方案未生成，已有正式计划保持可查看，请稍后重试。")],
                     "proposal_attempts": int(state.get("proposal_attempts", 0))+1}
-        return {"decision": decision, "messages": [AIMessage(content=decision.reply)],
+        return {"decision": decision, "messages": [public_reply(decision.reply)],
                 "turn_count": int(state.get("turn_count", 0))+1,
                 "proposal_attempts": int(state.get("proposal_attempts", 0))+1,
                 "clarification_target": "month" if decision.status == "ask" else "",
@@ -79,10 +84,10 @@ def build_wallet_graph(*, context, decide_runner, agent_runner=None, tools=None,
                   "validation_feedback": report["errors"], "trace": ["钱包方案独立复核：" + ("通过" if report["ok"] else "未通过")]}
         if report["ok"]:
             plan = compose_wallet_plan(decision.proposal, context.inputs)
-            update.update(plan=plan, awaiting_confirmation=True, messages=[AIMessage(content=plan.narrative)])
+            update.update(plan=plan, awaiting_confirmation=True, messages=[public_reply(plan.narrative)])
         elif state.get("proposal_attempts", 0) >= 3:
             update.update(error="方案未通过校验，请核对本月信息后重试。", ready_to_finalize=False,
-                          messages=[AIMessage(content="方案未通过校验：" + "；".join(report["errors"]))])
+                          messages=[public_reply("方案未通过校验：" + "；".join(report["errors"]))])
         return update
 
     def route_validation(state):

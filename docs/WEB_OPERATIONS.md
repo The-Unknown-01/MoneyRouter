@@ -14,7 +14,7 @@ pnpm build
 ./scripts/start-web.ps1 -Offline
 ```
 
-访问 http://127.0.0.1:8080。停止 Go 后启动脚本会停止其 Python 子进程。真实模型联调去掉 `-Offline`，配置 Python 支持的 `DEEPSEEK_API_KEY` 或密钥文件。已有旧 `data` 不改动，新数据在 `data-web/go` 与 `data-web/agent`；线上不需要 Node 进程。静态包已锁版本，本地托管且嵌入 Go 二进制；修改前端后须重新构建 Go。
+访问 http://127.0.0.1:8080。停止方式有三种：在运行窗口按 Q / Esc / Ctrl+C、直接关闭窗口、执行 `./stop.cmd`。两个子进程都在带 `KILL_ON_JOB_CLOSE` 的 Windows 作业对象内，启动脚本所在进程一结束（含窗口被强制关闭）就会被系统连带结束，不会留在后台；`stop.cmd`（`scripts/stop-web.ps1`）按「监听本项目端口」「进程特征」识别并停止 Python 与 Go，不会误杀恰好占用 8080/8090 的其他程序。停止 Go 后启动脚本也会停止其 Python 子进程。真实模型联调去掉 `-Offline`，配置 Python 支持的 `DEEPSEEK_API_KEY` 或密钥文件。已有旧 `data` 不改动，新数据在 `data-web/go` 与 `data-web/agent`；线上不需要 Node 进程。静态包已锁版本，本地托管且嵌入 Go 二进制；修改前端后须重新构建 Go。
 
 独立启动时，两个进程设置相同的随机 `AGENT_SERVICE_TOKEN`。Python 设置 `PYTHONPATH=agent/src`、`MONEYROUTER_SERVICE_DIR`，运行 `python -m uvicorn moneyrouter_agent.api.server:app --host 127.0.0.1 --port 8090`。Go 的 `AGENT_SERVICE_URL` 默认为 http://127.0.0.1:8090。使用 `-data data-web/go` 运行 Go；不要将 Python 端口公开。设置 `MARKET_DATA_CACHE_DIR` 可将市场缓存放在数据目录。
 
@@ -30,7 +30,7 @@ pnpm build
 
 必须同时停止两个服务，再复制整个 Go 和 Python 数据目录，包括 SQLite、WAL/SHM、用户检查点和业务 JSON 文件。只运行 Go 的 `-backup` 不构成完整应用备份。令牌和模型配置另外安全保管，备份不纳入版本库。
 
-本地停止启动脚本后运行：
+本地停止启动脚本（或先执行 `./stop.cmd` 确认两个进程都已退出）后运行：
 
 ```powershell
 ./scripts/backup-web.ps1 -DataRoot ./data-web -Destination ./backups/web-2026-10-08
