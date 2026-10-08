@@ -42,3 +42,16 @@ curl -fsS http://127.0.0.1/readyz
 部署日志：`/root/moneyrouter-deploy.log`；冒烟日志：`/root/moneyrouter-verify.log`。
 
 备份前同时停止 Go 与 Python，完整备份 `/var/lib/finance`，另行保护 `/etc/moneyrouter.env` 和 `/etc/moneyrouter`；详细流程见 `WEB_OPERATIONS.md`。
+
+## 更名与图标更新部署（2026-10-08，同日第二次部署）
+
+将部署从 `24350f55…` 更新为 `d5e3675a0dff2e0f8970b8ce225bf6fa6dbf50fb`：应用正式更名为「薪安理得」，应用图标改用 `icon.png`。
+
+- 构建：以 `git -c core.autocrlf=false archive` 取出的 LF 内容为源，在 Windows 侧 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` 构建；部署后 `/opt/moneyrouter/bin/finance-linux-amd64` SHA256 为 `bdb509867b6e85c8d93ba7a94f1a5316f40416d4e99323af182cb84eec7bb339`，与本地构建一致。
+- 上传内容：新 Go 二进制、变更源文件 tar（模板与静态资源内嵌进二进制；Python `agent/src` 源码与 venv 内已安装副本同步更新，`PYTHONPATH` 指向 `/opt/moneyrouter/agent/src`），另刷新两个 unit 的 `Description`。
+- 备份：`/root/moneyrouter-backup-20261008-045338`（旧二进制 `e25ed191…`、旧 `DEPLOYED_COMMIT`、完整源码 tar、新旧二进制 SHA256）。
+- 部署与验证脚本：`/root/deploy-d5e3675/{deploy,verify}-vps-d5e3675.sh`；日志 `/root/moneyrouter-deploy.log`、`/root/moneyrouter-verify-d5e3675.log`。
+- 验证结果：三个服务 `active`；本机 8080 的 `/healthz`、`/readyz`、`/login`、`/register`、`/static/{ui.css,flow.css,icon.png}` 全部 200；`/login` 标题为「登录 · 薪安理得」且页面无旧名；`flow.css` 含 `img.brand-mark` 规则；内部接口无令牌 401、带令牌 `/readyz` 返回 `contract_version: 1`；Agent 人设与 FastAPI title 已为「薪安理得」；公网 `https://anota.best/login` 200、`/static/icon.png` 200（1,285,896 字节，SHA256 `4d7719dc…` 与仓库 `web/static/icon.png` 一致）、HTTP 入口仍为 308。抽查 9 个源码文件，远端与本地 SHA256 完全一致。
+- 回滚：`install -m 0755 /root/moneyrouter-backup-20261008-045338/finance-linux-amd64.24350f5 /opt/moneyrouter/bin/finance-linux-amd64 && tar xzf /root/moneyrouter-backup-20261008-045338/source.tar.gz -C /opt/moneyrouter && systemctl restart moneyrouter-agent moneyrouter-web`。
+- 未改动：Caddy 配置、`/etc/moneyrouter.env`、数据目录与数据库结构；本次无数据迁移，故未做停机备份。
+- 待确认：连接时发现 SSH 主机密钥与 `known_hosts` 中原有 ECDSA 条目不一致，新主机密钥为 ED25519 `SHA256:3mJaKpEuUZsApw7JGUFjtCi2rcljfthCY+zkUKQtsvw`。已按部署指纹（`DEPLOYED_COMMIT` = `24350f5`、`/opt/moneyrouter` 布局、`anota.best`）确认为同一实例，但建议核对主机密钥变更原因。
